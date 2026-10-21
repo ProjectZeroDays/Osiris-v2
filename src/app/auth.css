@@ -1,0 +1,107 @@
+/* ── The gate ────────────────────────────────────────────────────────────
+   The sign-in and first-run screens. They use the platform's own palette
+   so a visitor who has never seen OSIRIS sees the same design language
+   the map uses. */
+
+.auth-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 32px;
+  background:
+    radial-gradient(1200px 600px at 50% -10%, rgba(0, 229, 255, 0.06), transparent),
+    radial-gradient(900px 500px at 90% 110%, rgba(212, 175, 55, 0.05), transparent),
+    var(--bg-void, #04040a);
+  font-family: var(--font-body);
+  color: var(--text-primary, #e8e6e0);
+}
+
+.auth-gate--checking { gap: 0; }
+
+.auth-gate__title {
+  font-family: var(--font-hud);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 0.32em;
+  color: var(--gold-primary, #d4af37);
+  margin: 0 0 4px;
+  text-indent: 0.32em;
+}
+
+.auth-gate__note {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary, #9b978e);
+  text-align: center;
+  max-width: 44ch;
+  margin: 0 0 8px;
+}
+
+.auth-gate__error {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--alert-red, #ff3d3d);
+  background: rgba(255, 61, 61, 0.07);
+  border: 1px solid rgba(255, 61, 61, 0.28);
+  border-radius: 7px;
+  padding: 8px 12px;
+  margin: 0;
+  max-width: 44ch;
+  text-align: center;
+}
+
+.auth-gate__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 380px;
+}
+
+.auth-gate__field > span {
+  font-family: var(--font-hud);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted, #5c5a54);
+}
+
+.auth-gate__field input {
+  width: 100%;
+  padding: 11px 13px;
+  border-radius: 8px;
+  background: var(--bg-secondary, #0c0e1a);
+  border: 1px solid var(--border-primary);
+  color: var(--text-primary, #e8e6e0);
+  font-family: var(--font-body);
+  font-size: 14px;
+}
+
+.auth-gate__field input:focus {
+  outline: none;
+  border-color: var(--cyan-primary, #00e5ff);
+}
+
+.auth-gate__button {
+  margin-top: 8px;
+  padding: 11px 24px;
+  border-radius: 8px;
+  border: 1px solid var(--gold-primary, #d4af37);
+  background: var(--gold-primary, #d4af37);
+  color: #04040a;
+  font-family: var(--font-hud);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: filter .2s, opacity .2s;
+}
+
+.auth-gate__button:hover:not(:disabled) { filter: brightness(1.1); }
+.auth-gate__button:disabled { opacity: .45; cursor: not-allowed; }
