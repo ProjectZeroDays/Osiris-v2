@@ -271,13 +271,15 @@ nothing recorded what those calls cost.
 
 ## Verification
 
-- 1547 JavaScript/TypeScript tests pass with a database, 1495 without
+- 1642 JavaScript/TypeScript tests pass with a database, 1596 without
   (the database-backed tests skip themselves when there is none)
 - 61 Python tests pass (34 safety, 15 routes, 12 isolation)
 - 14 desktop-client tests pass against a running platform, including a
   platform that has closed its tool registry
-- 22 Android client tests pass on the JVM, with no device and no emulator
-- `npm run typecheck` is clean; the production build completes
+- 27 Android client tests pass on the JVM, with no device and no emulator,
+  and 5 more on an emulator against a device with a real keystore
+- `npm run typecheck` is clean; the production build completes, and ships
+  65 MB with the big project directories excluded
 - `npm run lint` finishes with 0 errors
 - The Android APK builds, signs and verifies with apksigner (v2 and v3
   schemes)

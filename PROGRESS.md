@@ -425,6 +425,8 @@ A second `/swarm /goal /push` run.
 | 203 | The CI workflow is checked before it is trusted | done | The workflow parses, every action and version it names is checked, and the steps that can run locally were run locally. The pipeline had never executed on this code — it had never been on the remote |
 | 204 | The release job had never worked | done | Two bugs, both of which would have failed the release on its last step. `Rename-Item` was given a path as the new name, which it refuses with "represents a path or device name" — so both renames failed. And the standalone executable was uploaded from two paths, so the artifact keeps the `win-unpacked` folder it was built in, and the job looked for it only at the top level. Both fixed, and the whole job simulated locally against the layout `download-artifact` produces: it makes exactly the four files the release expects |
 | 205 | The production build was checked | done | `next build` compiles in forty seconds, and the shipped output is 65 MB with the big project directories excluded — the 1.3 GB build is not back. The standalone binary, the installer, the APK and the notes are in the package |
+| 206 | The release is rebuilt from the current code | done | The APK had been built before the last of the app changes, so it was stale. Rebuilt, re-signed, verified, and the package rebuilt around it |
+| 207 | The work is pushed | done | Four more commits on `origin/master`: the keystore fallback test, the pipeline fixes, the costs route's test, and this record |
 
 ## Next Highest-Value Items
 1. **A deployment with no database records no costs** - resolved
