@@ -336,7 +336,7 @@ last named gaps closed, and the work pushed.
 | 196 | A device could push without limit | done | The plan's risk list names "device identity, secret rotation, rate limits and bounded ingestion" for sensor push, and the rate limit was the last one missing. A device that pushes a million frames a minute was bounded only by what the upstream would accept. The allowance is in frames, not pushes, because a device that pushes one frame a second and one that pushes five thousand are very different amounts of work. It is per device, so one sensor on one roof cannot starve the others, and it is charged after the body is validated, so a malformed push costs nothing. A push over the allowance is 429 with a `Retry-After` |
 | 197 | The Android client's encrypted storage was untested | done | Five instrumented tests on an emulator (API 34), against a device with a real Android keystore: the encrypted path is the one taken, a session survives a reload, the token is not readable in the preferences file, and forgetting removes it. Two things had to be fixed to get there: the app had no `testInstrumentationRunner`, so the legacy runner started, found nothing, and reported a successful run with zero tests — the same as no test at all; and the storage fallback caught `Exception`, when the keystore's failure arrives as an `ExceptionInInitializerError`, an `Error` |
 | 198 | The wiki was three pages | done | `docs/README.md` is the index: what each page is for, grouped by whether you are deploying, operating, changing or deciding. Six tests hold it to the pages it names — a page that has moved, or an anchor that goes nowhere, fails the build. An index of links is a list; an index that says when you would want each page is a way in |
-| 199 | The work is pushed | done | Committed and pushed to `origin/master` |
+| 199 | The work is pushed | done | Six commits on `origin/master`: the sessions and the first run, the tool platform, the worker, the two clients, the tooling and the pipeline, and the wiki. Rebased onto the work that landed on the remote in the meantime, with the package files merged as a union and the two catalog entries the merge left disagreeing fixed |
 
 ## Verification Summary
 - The JavaScript/TypeScript suite is green: **1547 pass, 0 fail, 22 skipped** in a full run with a database, and **1495 pass, 0 fail, 74 skipped** without one (the DB-backed files skip themselves)
@@ -413,6 +413,18 @@ last named gaps closed, and the work pushed.
 - The plan's operational list is complete: migrations, health and
   readiness, quotas, cost tracking, secret storage, security headers,
   first-run UX and licensing each have an answer, and each is tested
+
+## Phase 26: The queue, run end to end
+A second `/swarm /goal /push` run.
+
+| # | Task | Status | Verified by |
+|---|------|--------|-------------|
+| 200 | The keystore fallback was verified by reading four lines | done | It is now verified by five tests. The path needs no device to reach: the JVM has no Android keystore, so `MasterKeys.getOrCreate` fails there exactly as it does on a device without one — with an `ExceptionInInitializerError`, an `Error`. The JVM *is* a device without a usable keystore, and the test says so rather than simulating it. The fallback is taken, the session still round-trips through it, and the token in the fallback store is in the clear — the compromise, stated rather than glossed |
+| 201 | The migrations apply to a fresh database | done | The CI applies them to a database that has never been migrated, and that had never run. Five migrations against an empty PostgreSQL 17, in order, and the schema they produce is the schema the code expects — proven by running the whole suite against that fresh database, not by reading the SQL |
+| 202 | A hook timeout would have broken the first CI run | done | Found by running the suite the way CI does: a `beforeAll` that loads a route and its dependency graph timed out at the default ten seconds when a hundred and fifty files were transforming in parallel, and the whole file was skipped rather than failed. The budget is now sixty seconds, globally and on the six hooks that need it. The hook was not slow on its own; it was slow because the machine was busy, and it failed anyway |
+| 203 | The CI workflow is checked before it is trusted | done | The workflow parses, every action and version it names is checked, and the steps that can run locally were run locally. The pipeline had never executed on this code — it had never been on the remote |
+| 204 | The release job had never worked | done | Two bugs, both of which would have failed the release on its last step. `Rename-Item` was given a path as the new name, which it refuses with "represents a path or device name" — so both renames failed. And the standalone executable was uploaded from two paths, so the artifact keeps the `win-unpacked` folder it was built in, and the job looked for it only at the top level. Both fixed, and the whole job simulated locally against the layout `download-artifact` produces: it makes exactly the four files the release expects |
+| 205 | The production build was checked | done | `next build` compiles in forty seconds, and the shipped output is 65 MB with the big project directories excluded — the 1.3 GB build is not back. The standalone binary, the installer, the APK and the notes are in the package |
 
 ## Next Highest-Value Items
 1. **A deployment with no database records no costs** - resolved
