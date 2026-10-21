@@ -979,6 +979,19 @@ export const API_GROUPS: ApiGroup[] = [
 }`,
       },
       {
+        path: '/api/oi/identify',
+        method: 'POST',
+        summary: "Name the vehicles in a camera frame, on the reader's own key.",
+        returns: ['vehicles', 'usage'],
+        headers: { 'X-OI-Provider': '$YOUR_PROVIDER', 'X-OI-Key': '$YOUR_MODEL_KEY' },
+        requiresAuth: true,
+        notes: "The crops are cut by the page from the frame it analysed, so the answer is about exactly the vehicles the reader is looking at. Only a model that reads pictures is asked: a text-only one would have nothing to go on but guesses. Number plates are never read, and nothing is kept. At most six crops, 160 KB of base64 each, and twelve identifications a minute.",
+        bodyExample: `{
+  "camera": "taipei-104",
+  "crops": [{ "n": 1, "image": "<base64 JPEG>" }]
+}`,
+      },
+      {
         path: '/api/oi/runs/{id}/inject',
         method: 'POST',
         summary: "God's-eye view: drop an event into a running simulation. It happens in every world in the next period of simulated time.",
