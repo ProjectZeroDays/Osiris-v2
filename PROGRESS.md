@@ -473,11 +473,160 @@ A second `/swarm /goal /push` run.
    rather than `Exception` is stated in the code and in the test file's
    comment, and the JVM tests pin the storage contract the fallback
    has to satisfy
+6. **A chat through the dispatcher was charged twice** - resolved
+   (2026-10-21): the `ai.chat` capability is dispatchable, and the
+   dispatcher charges every call it dispatches. With the chat measured
+   in tokens, that meant one chat was billed twice - once as the
+   capability's declared cost and once as the usage the provider
+   reported - in two different units on one row, and it spent the day's
+   allowance twice over. The cost table now marks a capability whose
+   cost is not knowable in advance as `measured`, and the dispatcher
+   charges such a capability the call and nothing else; whoever measured
+   the cost charges that, through a new `recordCost` that adds a cost
+   without counting a call. The chat route, which nobody else counts,
+   still records the call itself. The unit on a row is now rewritten
+   only by a call that carries units, so a free capability called later
+   cannot rename a row holding a measured total.
+7. **The chat proxy spent the operator's key for an unsigned caller** -
+   resolved (2026-10-21): `/api/ai/chat` holds the provider's key in
+   the environment and spends it, but the auth check ran *after* the
+   upstream call, so on a deployment with accounts an unsigned caller
+   got the reply and the spend was not even recorded - the tenant was
+   null, and the route returned before the cost was written. Every
+   other metered route refuses an unsigned caller. The check now runs
+   before the call, and an unsigned caller on a deployment with
+   accounts is refused with 401 without the provider being called; a
+   bare deployment has no accounts and no sign-in, so the call proceeds
+   against the single-tenant identity. The cost route's `priced` list
+   also now marks a measured capability as `measured`, so its zero
+   declared units do not read as "free".
+8. **The chat proxy had no rate limit at all** - resolved (2026-10-21):
+   the sibling AI routes that also reach the operator's key
+   (`/api/ai/overview`, `/api/ai/analyze`, `/api/ai/briefing`) each
+   bound a caller by address, and the chat route - which spends the same
+   kind of money - bounded nobody. It now allows twenty chats a minute
+   per client address, refused with 429 before the provider is called,
+   using the shared `isRateLimited` and `getClientIp` from
+   `ssrf-guard.ts` so the address is read the same way the other routes
+   read it (the rightmost forwarded entry, not the one the client
+   writes). The limit is per client address, so one runaway client
+   cannot spend the key for everyone.
+9. **The session requirement was one notch too broad** - resolved
+   (2026-10-21): requiring a session for *every* chat would have locked
+   an operator out of their own deployment when the provider is a local
+   model, which needs no key and runs on the operator's own machine.
+   The session is required for a provider that needs a key, because
+   that is the call that spends their money. A local provider is served
+   without one, and its cost is still recorded - against the
+   single-tenant identity, so the call is visible rather than lost.
+10. **The Gemini routes spent the operator's key and recorded nothing** -
+   resolved (2026-10-21): `/api/ai/analyze`, `/api/ai/briefing` and
+   `/api/ai/overview` all reach Gemini on the server's key, and all
+   three threw the response's usage away - `ai-engine.ts` returned
+   `response.text()` and nothing else - so what they spent was
+   unrecoverable after the fact. The provider counts the tokens it
+   billed for and puts the count on the response
+   (`usageMetadata.totalTokenCount`), so the engine now returns it
+   alongside the text, and each route records it against the tenant.
+   The Gemini calls get their own `ai-analyst` row rather than sharing
+   the model chat's, because a row carries one unit and the two would
+   otherwise be adding tokens together under a name that describes
+   neither. The overview route's heuristic fallback costs nothing - it
+   runs on the operator's own machine - so only a Gemini answer has a
+   cost to record.
+11. **The OpenSky refresh spent credits and recorded nothing** -
+   resolved (2026-10-21): `/api/flights` refreshes its snapshot from
+   OpenSky, which is metered in credits - the route's own comment
+   records a day when the anonymous daily budget was exhausted and the
+   map went empty - and every call it answered for was invisible. Each
+   answered call is now recorded as an `opensky-credit` against the
+   `flights` row. A 429 was refused rather than served, so it costs
+   nothing and is not recorded. The adsb.fi feeds are not counted: they
+   are free endpoints with no key, so a call against them costs the
+   operator nothing they are billed for, and recording one would be
+   inventing a unit. The AIS WebSocket in `/api/maritime` is likewise
+   not counted - it is one persistent subscription, not a per-call
+   charge.
+12. **The platform's own spending was invisible to every tenant** -
+   resolved (2026-10-21): the aircraft feed is refreshed whether or not
+   anyone is watching, and the operator pays for it once for the whole
+   deployment, so it is not one tenant's spending. Recording it against
+   a tenant hid it from everyone else, and the first attempt recorded it
+   against "single-tenant" - a name that only exists on a deployment
+   with no database, so on a real deployment the spend landed on a row
+   nobody read. Platform-wide costs now have a tenant of their own
+   (`platform:shared`), and every tenant's cost view includes them,
+   because they are part of what the deployment costs to run.
+13. **The worker test timed out instead of saying what went wrong** -
+   resolved (2026-10-21): the test that starts the real tool-collection
+   worker waited up to 240 x 500ms - exactly 120 seconds - for the
+   worker to come up, and its own timeout was also 120 seconds. Under
+   the full suite's load the wait could therefore consume the whole
+   budget, and the test reported "Test timed out in 120000ms", which
+   says nothing about whether the boundary held. The wait is now
+   shorter than the timeout, so a worker that never comes up reports
+   that it did not come up. It was the one failure in two consecutive
+   full-suite runs before this.
+14. **The worker took almost a minute to start** - resolved (2026-10-21):
+   the reason the test timed out, and a real defect in its own right.
+   `discover_tools()` walked the tool collection with `rglob`, and one
+   category is a checkout carrying a `node_modules` tree - so the walk
+   descended into thousands of vendored files that are not tools, and
+   the scan alone took 51 seconds. Every worker start paid it, and the
+   health check - the thing a caller waits on - was not answerable until
+   the scan finished. The walk now skips the vendored trees
+   (`node_modules`, `.git`, `__pycache__`, `venv`, `build`, `dist` and
+   the rest) and reads each tool's description only when `/api/tools`
+   asks for it, rather than at startup. The worker is up in 3 seconds
+   instead of 48, and the boundary test takes 8 seconds instead of 76.
+   The tools found are the same 1163 real ones; the 112 that vanished
+   were Python files inside npm packages.
+15. **The worker's discovery was untested against a known collection** -
+   resolved (2026-10-21): the scan now skips vendored trees and reads
+   descriptions lazily, and both of those are decisions the code makes
+   for every start. Nothing held them: a change that walked into
+   node_modules again, or that read a description eagerly again, would
+   have passed every test there was. `test_worker_discovery.py` builds
+   a small collection of its own - a real tool, a nested tool, a
+   vendored tree, a private file - and asserts what the scan finds and
+   what it does not, so the behaviour is pinned without depending on
+   what happens to be installed on the machine. Seven tests, and the
+   description cache is tied to the list it describes, so a tool added
+   while the worker runs is described rather than served the old list's
+   description.
+16. **The worker ran as many tools at once as it could be asked to** -
+   resolved (2026-10-21): the worker serves with Flask's threaded
+   server, which starts a thread per connection, and every tool call
+   runs in a subprocess of its own for up to five minutes. Nothing
+   bounded how many ran at once, so a caller who could reach the worker
+   could start as many as it liked, and the worker would stop answering
+   its health check - the one thing that has to keep working. The
+   platform's own risk list named this shape, and the gap analysis
+   recorded that a handful of concurrent scans pins a finite number of
+   threads. The worker now takes a slot for each tool run, refuses a
+   call when it is already running eight, and gives the slot back
+   whatever happens to the tool. The refusal is a 429 and not a 500,
+   because the worker is busy rather than broken. Six tests, including
+   one that four threads wanting the whole allowance between them take
+   only the allowance.
+17. **A busy worker was reported as a gateway failure** - resolved
+   (2026-10-21): the worker had no way to say it was busy, so the
+   platform's own error mapping - which decides the status a caller
+   sees - had nothing to work with. A worker's 429 became
+   `COLLECTION_WORKER_HTTP_429` and then a 502, which says the platform
+   is unwell when it is not, and tells the caller the wrong thing about
+   whether to come back. The worker now refuses with its own code, the
+   adapter passes it on as `COLLECTION_WORKER_BUSY`, and the dispatcher
+   answers 429. The mapping itself moved out of the route into
+   `refusal-status.ts`, where it can be tested: it was previously
+   reachable only through a request, so nothing held it. Seven tests.
 
 ## Done
 
-All five items resolved; the costs route now also says, in its `detail`
-string, when some of a day's calls did not report their own usage, so a
-zero-token row no longer reads as "this cost nothing" without
-qualification. Verified: `tsc --noEmit` exit 0, `npm run build`
-succeeds, and the touched suites pass.
+All seventeen items resolved; the costs route now also says, in its
+`detail` string, when some of a day's calls did not report their own
+usage, so a zero-token row no longer reads as "this cost nothing"
+without qualification. Verified: `tsc --noEmit` exit 0, `npm run build`
+succeeds, the full suite passes (145 files, 1633 tests, 0 failures, 76
+skipped), the Python worker suites pass 77/77 with the worker running,
+and the touched suites pass.

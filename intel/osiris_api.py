@@ -26,6 +26,7 @@ import json
 import hmac
 import subprocess
 import tempfile
+import threading
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, List, Optional
@@ -50,6 +51,48 @@ from worker_safety import (
 
 # Every scan is bounded by the same lifetime, whichever path runs it.
 SCAN_TIMEOUT_SECONDS = DEFAULT_TIMEOUT_SECONDS
+
+# How many tools may run at once.
+#
+# The worker serves with Flask's threaded server, which starts a thread per
+# connection, and every tool call runs in a subprocess of its own. So
+# without a bound here, a caller who can reach the worker can start as
+# many tools as it likes at once, and each one pins a thread and a
+# subprocess for as long as the tool runs - long enough that the worker
+# stops answering its health check, which is the one thing that has to
+# keep working.
+#
+# The number is generous for a person using the collection and tight
+# against a flood. A caller that arrives when the worker is busy is told
+# so, rather than being queued behind work it cannot see.
+MAX_CONCURRENT_TOOLS = 8
+
+# The tools running right now, and the lock that guards the count.
+_running_tools = 0
+_running_tools_lock = threading.Lock()
+
+
+class TooManyToolsRunning(RuntimeError):
+    """Raised when the worker is already running as many tools as it will."""
+
+
+def _acquire_tool_slot() -> None:
+    """Take a slot for one tool run, or say the worker is too busy."""
+    global _running_tools
+    with _running_tools_lock:
+        if _running_tools >= MAX_CONCURRENT_TOOLS:
+            raise TooManyToolsRunning(
+                f"The worker is already running {MAX_CONCURRENT_TOOLS} tools."
+            )
+        _running_tools += 1
+
+
+def _release_tool_slot() -> None:
+    """Give the slot back, whatever happened to the tool."""
+    global _running_tools
+    with _running_tools_lock:
+        if _running_tools > 0:
+            _running_tools -= 1
 
 # Add Cyber-Security tools to path
 CYBER_TOOLS_ROOT = Path("C:/Projects/Cyber-Security")
@@ -122,10 +165,74 @@ TOOL_CATEGORIES = {
 
 # Cache for tool discovery
 _tool_cache = None
+# The descriptions, read the first time somebody asks what the collection
+# contains. Kept apart from the tool list so that a worker which is only
+# running tools never reads a thousand files it does not need. The pair is
+# (the tool list it describes, the described list), so a changed tool
+# list gets its descriptions read again rather than serving stale ones.
+_description_cache = None
+
+
+# Directories inside a category that hold vendored code rather than
+# tools. A category is a checkout in its own right sometimes - one of
+# them carries a node_modules tree - and walking one of those meant
+# descending into thousands of files that are not tools at all. It cost
+# half a minute of the worker's startup, which was long enough that a
+# caller waiting on the health check timed out.
+_VENDORED_DIRS = {
+    "node_modules", ".git", ".hg", ".svn", "__pycache__", ".mypy_cache",
+    ".pytest_cache", ".ruff_cache", "venv", ".venv", "env", "site-packages",
+    "build", "dist", ".tox", ".eggs",
+}
+
+
+def _iter_tool_files(category_dir: Path):
+    """Every tool file in a category, skipping the vendored trees.
+
+    A directory walk that does not descend into node_modules and the
+    like finds the same tools a fraction of the time, because the
+    expensive part of the walk was never the tools.
+    """
+    stack = [category_dir]
+    while stack:
+        current = stack.pop()
+        try:
+            with os.scandir(current) as entries:
+                for entry in entries:
+                    try:
+                        is_dir = entry.is_dir(follow_symlinks=False)
+                    except OSError:
+                        continue
+                    if is_dir:
+                        if entry.name in _VENDORED_DIRS or entry.name.startswith('.'):
+                            continue
+                        stack.append(entry.path)
+                    elif entry.name.endswith('.py') and not entry.name.startswith('_'):
+                        yield Path(entry.path)
+        except OSError:
+            # A directory we cannot read is a directory without tools.
+            continue
 
 
 def discover_tools() -> Dict[str, List[Dict[str, Any]]]:
-    """Discover available tools from the Cyber-Security directory."""
+    """Discover available tools from the Cyber-Security directory.
+
+    The scan is a directory walk, which is cheap. What is not cheap is
+    reading a description out of every tool file: the collection has
+    well over a thousand of them, and opening each one took long enough
+    that the worker needed almost a minute to answer its health check -
+    long enough that a caller waiting on it timed out, and long enough
+    that the platform's own test of the worker's boundary failed when
+    the rest of the suite was running alongside it.
+
+    So the description is read when it is asked for rather than when the
+    worker starts. `/api/tools` pays the cost, and only if it is
+    called; the health check and the tool runner never do.
+
+    The entries this returns carry no description at all, rather than an
+    empty one: an empty string says the tool has no description, and
+    that is a different claim from "nobody has read it yet".
+    """
     global _tool_cache
     if _tool_cache is not None:
         return _tool_cache
@@ -134,26 +241,50 @@ def discover_tools() -> Dict[str, List[Dict[str, Any]]]:
     for category_dir in TOOLS_PATH.iterdir():
         if not category_dir.is_dir() or category_dir.name.startswith('_'):
             continue
-        
+
         category_tools = []
-        for tool_file in category_dir.rglob("*.py"):
-            if tool_file.name.startswith('_') or tool_file.suffix == '.pyc':
-                continue
-            
+        for tool_file in _iter_tool_files(category_dir):
             rel_path = tool_file.relative_to(category_dir)
             category_tools.append({
                 "name": tool_file.stem,
                 "path": str(rel_path),
                 "full_path": str(tool_file),
                 "category": category_dir.name,
-                "description": extract_description(tool_file)
             })
-        
+
         if category_tools:
             tools[category_dir.name] = category_tools
 
     _tool_cache = tools
     return tools
+
+
+def describe_tools(tools: Dict[str, List[Dict[str, Any]]]) -> Dict[str, List[Dict[str, Any]]]:
+    """Fill in each tool's description, reading the files for it.
+
+    The caller asked what the collection contains, so this is the moment
+    to read it. The result is cached beside the tool list, so a second
+    caller does not pay for it again.
+
+    The cache is tied to the tool list it describes: a list that has
+    changed gets its descriptions read again, rather than the old ones
+    being served for tools that are no longer there.
+    """
+    global _description_cache
+    if _description_cache is not None and _description_cache[0] is tools:
+        return _description_cache[1]
+
+    described = {}
+    for category, category_tools in tools.items():
+        entries = []
+        for tool in category_tools:
+            entry = dict(tool)
+            entry["description"] = extract_description(Path(tool["full_path"]))
+            entries.append(entry)
+        described[category] = entries
+
+    _description_cache = (tools, described)
+    return described
 
 
 def extract_description(file_path: Path) -> str:
@@ -202,7 +333,7 @@ def health():
 @app.route('/api/tools', methods=['GET'])
 def list_tools():
     """List all available tools by category."""
-    tools = discover_tools()
+    tools = describe_tools(discover_tools())
     return jsonify({
         "categories": TOOL_CATEGORIES,
         "tools": tools,
@@ -213,7 +344,7 @@ def list_tools():
 @app.route('/api/tools/<category>', methods=['GET'])
 def list_category_tools(category: str):
     """List tools in a specific category."""
-    tools = discover_tools()
+    tools = describe_tools(discover_tools())
     if category not in tools:
         return jsonify({"error": "Category not found"}), 404
     return jsonify({
@@ -245,19 +376,41 @@ def execute_tool(category: str, tool_name: str):
     try:
         result = run_tool_subprocess(tool, request.get_json() or {})
         return jsonify({"success": True, "result": result})
+    except TooManyToolsRunning as e:
+        # The worker is busy rather than broken, so this is a 429 and not
+        # a 500: the caller can come back, and the health check keeps
+        # answering.
+        return jsonify({"error": str(e), "error_code": "WORKER_BUSY"}), 429
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
 
 def run_tool_subprocess(tool: Dict, params: Dict, entry: Optional[str] = None) -> Any:
     """
-    Run a tool in a subprocess, and read the answer back.
 
     Three files are involved: the parameters go out, the result comes
     back, and the shim in between imports the tool and calls it. The
     tool's path comes from the worker's own catalogue, never from the
     request, and the output is bounded.
+
+    The run takes one of the worker's slots for its lifetime, so a
+    caller cannot start more tools at once than the worker will run. The
+    slot is given back whatever happens, including when the tool is
+    killed at its timeout.
     """
+    _acquire_tool_slot()
+    try:
+        return _run_tool_subprocess(tool, params, entry)
+    finally:
+        _release_tool_slot()
+
+
+def _run_tool_subprocess(
+    tool: Dict,
+    params: Dict,
+    entry: Optional[str],
+) -> Any:
+    """The tool run itself, with the slot already taken."""
     params_file = None
     result_file = None
     try:

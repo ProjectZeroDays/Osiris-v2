@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   consumeQuota,
+  PLATFORM_TENANT,
   readCosts,
+  recordCost,
 } from "@/lib/integrations/quota.server";
 
 /**
@@ -83,5 +85,94 @@ describe.skipIf(hasDatabase)("the in-memory cost ledger", () => {
     expect(other).toEqual([]);
     const same = await readCosts("t-day", today);
     expect(same.find((l) => l.tool === "shodan")!.units).toBe(1);
+  });
+
+  it("shows a tenant the platform's own spending", async () => {
+    // The aircraft feed is refreshed whether or not anyone is watching,
+    // and the operator pays for it once for the whole deployment. It is
+    // not one tenant's spending, so it is recorded against the platform
+    // — and it is part of what the deployment costs to run, so every
+    // tenant's cost view includes it.
+    await recordCost(PLATFORM_TENANT, "flights", {
+      units: 4,
+      unit: "opensky-credit",
+      reported: true,
+    });
+
+    const lines = await readCosts("t-any-tenant");
+    const flights = lines.find((l) => l.tool === "flights");
+    expect(flights).toBeDefined();
+    expect(flights!.units).toBe(4);
+    expect(flights!.unit).toBe("opensky-credit");
+  });
+
+  it("keeps a tenant's own spending out of another tenant's view", async () => {
+    await recordCost("t-mine", "shodan", { units: 7, unit: "shodan-query" });
+
+    const mine = await readCosts("t-mine");
+    expect(mine.find((l) => l.tool === "shodan")!.units).toBe(7);
+
+    const theirs = await readCosts("t-not-mine");
+    expect(theirs.find((l) => l.tool === "shodan")).toBeUndefined();
+  });
+
+  it("records a measured cost without counting another call", async () => {
+    // A chat made through the dispatcher is counted there, when it is
+    // dispatched; its cost is measured afterwards, when the reply
+    // arrives. Charging both would count the same chat twice and spend
+    // the day's allowance twice over.
+    await consumeQuota("t-measured", "ai-settings", 100);
+    await recordCost("t-measured", "ai-settings", {
+      units: 17,
+      unit: "ai-token",
+      reported: true,
+    });
+
+    const lines = await readCosts("t-measured");
+    const chat = lines.find((l) => l.tool === "ai-settings")!;
+    expect(chat.calls).toBe(1);
+    expect(chat.units).toBe(17);
+    expect(chat.unit).toBe("ai-token");
+    expect(chat.reportedCalls).toBe(1);
+  });
+
+  it("charges a chat through the dispatcher exactly once", async () => {
+    // The whole sequence a chat makes through the dispatcher: the call
+    // is counted when it is dispatched, and its cost is measured when the
+    // reply arrives. One chat, one call, one cost.
+    //
+    // The bug this pins down was a double charge: the dispatcher charged
+    // the declared cost of the capability and the adapter charged the
+    // measured usage, so one chat was billed twice, in two units, and
+    // spent the day's allowance twice.
+    await consumeQuota("t-dispatch", "ai-settings", 100);
+    await recordCost("t-dispatch", "ai-settings", {
+      units: 17,
+      unit: "ai-token",
+      reported: true,
+    });
+
+    const chat = (await readCosts("t-dispatch")).find((l) => l.tool === "ai-settings")!;
+    expect(chat.calls).toBe(1);
+    expect(chat.units).toBe(17);
+    expect(chat.reportedCalls).toBe(1);
+  });
+
+  it("keeps a measured cost's unit when a free call follows it", async () => {
+    // The unit is rewritten only by a call that carries units, so a free
+    // capability called afterwards cannot rename a row that holds a
+    // measured cost — the row would then report a token total in a unit
+    // that does not describe it.
+    await recordCost("t-mixed", "ai-settings", {
+      units: 17,
+      unit: "ai-token",
+      reported: true,
+    });
+    await consumeQuota("t-mixed", "ai-settings", 100);
+
+    const lines = await readCosts("t-mixed");
+    const chat = lines.find((l) => l.tool === "ai-settings")!;
+    expect(chat.units).toBe(17);
+    expect(chat.unit).toBe("ai-token");
   });
 });

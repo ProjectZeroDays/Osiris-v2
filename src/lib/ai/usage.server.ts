@@ -1,22 +1,21 @@
 import "server-only";
 
-import { consumeQuota } from "@/lib/integrations/quota.server";
+import { consumeQuota, recordCost } from "@/lib/integrations/quota.server";
+import { getAuthContext } from "@/lib/auth/context.server";
 
 /**
  * What a chat call actually cost, as the provider reported it.
  *
- * The cost table prices `ai.chat` at one `ai-request`, and that entry is
- * now the fallback rather than the whole story: it is what a capability
- * declares before it is called, since a declared cost cannot know what a
- * particular reply will use. What is *recorded* is what the provider
- * reported, in tokens. The reason the request-count was thought necessary
- * does not survive contact with the provider's own documentation.
- * OpenRouter includes the usage for the whole request in the last message
- * of a streamed reply, after the frame that carries `finish_reason`, and
- * it does so automatically: the `stream_options.include_usage` parameter
- * that would ask for it is deprecated and has no effect. Reading the
- * usage costs one parse of one frame. Nothing is buffered, and the stream
- * is not held up.
+ * The cost table marks `ai.chat` as *measured*: its cost is not knowable
+ * before the call, so the table declares no figure and the dispatcher's
+ * declared-cost path is skipped for it. The reason the request-count was
+ * thought necessary does not survive contact with the provider's own
+ * documentation. OpenRouter includes the usage for the whole request in
+ * the last message of a streamed reply, after the frame that carries
+ * `finish_reason`, and it does so automatically: the
+ * `stream_options.include_usage` parameter that would ask for it is
+ * deprecated and has no effect. Reading the usage costs one parse of one
+ * frame. Nothing is buffered, and the stream is not held up.
  *
  * So what is recorded here is what the provider said, not an estimate
  * computed from text the platform guesses a tokenizer for. `tokens` is the
@@ -28,13 +27,12 @@ import { consumeQuota } from "@/lib/integrations/quota.server";
  * means two different things. A local model reports no usage because it
  * is free: the inference ran on the operator's own machine and they were
  * billed nothing. A metered provider that dropped the connection is a
- * different case — the tokens were spent, the reply was not finished, and
+ * different case - the tokens were spent, the reply was not finished, and
  * nothing arrived to say how many. The platform does not know which it is
  * looking at, so it does not pretend to. The unit stays `ai-token`
- * either way, because it has to: a day's row carries one `costUnit` and
- * `consumeQuota` overwrites it on every write, so a unit that varied
- * between calls would leave the row reporting a total in whichever unit
- * happened to come last.
+ * either way, because it has to: a day's row carries one `costUnit`, so a
+ * unit that varied between calls would leave the row reporting a total
+ * in whichever unit happened to come last.
  */
 
 /**
@@ -51,6 +49,57 @@ import { consumeQuota } from "@/lib/integrations/quota.server";
  * deliberately far above anything a person reaches by hand.
  */
 const RECORDED_CALLS_CEILING = 100_000;
+
+/**
+ * The tool a Gemini call's cost is recorded against.
+ *
+ * The Gemini routes are not a capability of the `ai-settings` tool — they
+ * are the platform's own analyst, reached through their own routes — so
+ * they get their own row rather than sharing one with the model chat. A
+ * row carries one unit, and the two would otherwise be adding tokens
+ * together under a name that describes neither.
+ */
+const GEMINI_TOOL = "ai-analyst";
+
+/**
+ * Record what a Gemini call cost, against the tenant it was made for.
+ *
+ * The count and the cost together, because nothing else counts these
+ * calls: the rate limit bounds a single caller for a minute, and that is
+ * not a record of what the operator spent.
+ *
+ * The unit is the token, the same unit the model chat uses, because
+ * Gemini is billed in tokens too and an operator reading the day's
+ * spending should not have to convert between two vocabularies for the
+ * same provider's business.
+ */
+export async function recordAiUsage(
+  tenantId: string,
+  usage: { totalTokens: number } | null,
+): Promise<void> {
+  try {
+    await consumeQuota(tenantId, GEMINI_TOOL, RECORDED_CALLS_CEILING, {
+      units: usage?.totalTokens ?? 0,
+      reported: usage !== null,
+      unit: "ai-token",
+    });
+  } catch {
+    // Deliberately swallowed: see the function's own note.
+  }
+}
+
+/**
+ * The tenant a platform-side AI call is recorded against.
+ *
+ * The same rule the costs route reads under: the session's tenant when
+ * there is one, and the single-tenant identity when there is not. A
+ * deployment with no accounts has no sign-in to demand, and a call made
+ * against it is still a call the operator made.
+ */
+export async function aiTenant(): Promise<string> {
+  const { tenantId } = await getAuthContext();
+  return tenantId ?? "single-tenant";
+}
 
 /** One chat call, as the platform will remember it. */
 export interface ChatUsage {
@@ -227,6 +276,35 @@ export async function recordChatCost(
 ): Promise<void> {
   try {
     await consumeQuota(tenantId, "ai-settings", RECORDED_CALLS_CEILING, {
+      units: usage.tokens ?? 0,
+      reported: usage.reported,
+      unit: "ai-token",
+    });
+  } catch {
+    // Deliberately swallowed: see the function's own note.
+  }
+}
+
+/**
+ * Record what a chat cost, for a call that has already been counted.
+ *
+ * The same measurement as [recordChatCost], but without counting a call.
+ * A chat made through the integration dispatcher is counted there, when
+ * it is dispatched, because that is where the day's allowance is
+ * enforced. The usage is not known until the reply arrives, so the cost
+ * is recorded here instead — and counting the call again would spend the
+ * day's allowance twice over for one chat.
+ *
+ * The cost lands in the same row either way, so the day's chat spending
+ * is one figure whether the chat came through the dispatcher or the chat
+ * route.
+ */
+export async function recordChatUsage(
+  tenantId: string,
+  usage: ChatUsage,
+): Promise<void> {
+  try {
+    await recordCost(tenantId, "ai-settings", {
       units: usage.tokens ?? 0,
       reported: usage.reported,
       unit: "ai-token",

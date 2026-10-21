@@ -11,6 +11,7 @@ import { IntegrationRequestBodySchema } from "@/lib/integrations/schemas";
 import { getAuthContext } from "@/lib/auth/context.server";
 import { consumeQuota, DEFAULT_DAILY_QUOTA } from "@/lib/integrations/quota.server";
 import { costFor } from "@/lib/integrations/costs.server";
+import { statusForRefusal, codeForRefusal } from "@/lib/integrations/refusal-status";
 import { recordFailure, recordSuccess, isCoolingDown, cooldownRemaining } from "@/lib/integrations/health.server";
 import { getDb } from "@/db/client.server";
 
@@ -125,11 +126,17 @@ export async function POST(
     //    charges for the request whether or not the answer was useful,
     //    and an operator who cannot see the adds coming finds out on a
     //    bill.
+    //
+    //    A measured capability is an exception: its cost is not knowable
+    //    before the call, so only the call is charged here and whoever
+    //    measured the cost charges that. Charging a declared figure as
+    //    well would bill the same call twice, in two different units.
+    const declared = costFor(toolId, action);
     const quota = await consumeQuota(
       request.tenantId,
       toolId,
       DEFAULT_DAILY_QUOTA,
-      costFor(toolId, action) ?? undefined,
+      declared?.measured ? undefined : (declared ?? undefined),
     );
     if (!quota.allowed) throw new Error("INTEGRATION_QUOTA_EXCEEDED");
 
@@ -363,17 +370,10 @@ export async function POST(
       purpose: request.purpose, decision: "deny", reason: message,
     });
 
-    const status = message.includes("UNAUTHENTICATED") || message.includes("TENANT") ? 401
-      : message.includes("DENIED") || message.includes("DISABLED")
-        || message.includes("ASSET_REQUIRED") || message.includes("CONSENT_REQUIRED")
-        || message.includes("NOT_OWNED") || message.includes("QUOTA")
-        || message.includes("COOLDOWN") ? 403
-      : message.includes("NOT_CONFIGURED") || message.includes("UNAVAILABLE") ? 503
-      : message.includes("INVALID_") ? 400
-      : 502;
+    const status = statusForRefusal(message);
 
     return NextResponse.json(
-      { ok: false, requestId: request.requestId, tool: toolId, capability: action, errorCode: message.split(":")[0], auditId },
+      { ok: false, requestId: request.requestId, tool: toolId, capability: action, errorCode: codeForRefusal(message), auditId },
       { status, headers: { "Cache-Control": "no-store" } },
     );
   }

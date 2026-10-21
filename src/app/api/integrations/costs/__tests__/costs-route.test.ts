@@ -15,12 +15,16 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * deployment demands a session.
  */
 
-const { jar, db } = vi.hoisted(() => ({
+const { jar, db, pricedCapabilities } = vi.hoisted(() => ({
   jar: new Map<string, string>(),
   db: {
     hasDatabase: false,
     sessionRow: null as null | Record<string, unknown>,
   },
+  pricedCapabilities: [] as {
+    capability: string;
+    cost: { units: number; unit: string; measured?: boolean };
+  }[],
 }));
 
 vi.mock("next/headers", () => ({
@@ -52,11 +56,11 @@ vi.mock("@/lib/integrations/quota.server", () => ({
 }));
 
 vi.mock("@/lib/integrations/costs.server", () => ({
-  costingCapabilities: () => [],
+  costingCapabilities: () => pricedCapabilities,
 }));
 
 vi.mock("@/config/security-tools", () => ({
-  SECURITY_TOOL_CARDS: [],
+  SECURITY_TOOL_CARDS: [{ id: "ai-settings" }],
 }));
 
 import { GET } from "@/app/api/integrations/costs/route";
@@ -69,6 +73,7 @@ beforeEach(() => {
   jar.clear();
   db.hasDatabase = false;
   db.sessionRow = null;
+  pricedCapabilities.length = 0;
 });
 
 describe("the costs route", () => {
@@ -128,5 +133,42 @@ describe("the costs route", () => {
     const res = await GET(request("http://localhost/api/integrations/costs?day=2020-01-01"));
     const body = (await res.json()) as { day: string };
     expect(body.day).toBe("2020-01-01");
+  });
+
+  it("marks a measured capability as measured, not as free", async () => {
+    // A capability whose cost is not knowable in advance declares zero
+    // units, because that is the truth about the declaration. Reporting
+    // it as `units: 0` with no further word would read as "this costs
+    // nothing" — the opposite of the truth, since the cost arrives with
+    // the reply. The `measured` flag says which it is.
+    pricedCapabilities.push({
+      capability: "ai.chat",
+      cost: { units: 0, unit: "ai-token", measured: true },
+    });
+
+    const res = await GET(request());
+    const body = (await res.json()) as {
+      priced: { tool: string; capability: string; units: number; unit: string; measured: boolean }[];
+    };
+    const chat = body.priced.find((p) => p.capability === "ai.chat")!;
+    expect(chat.measured).toBe(true);
+    expect(chat.unit).toBe("ai-token");
+  });
+
+  it("does not mark a fixed-price capability as measured", async () => {
+    // A Shodan query is one credit before the call is made, so it is
+    // priced, not measured, and the flag says so.
+    pricedCapabilities.push({
+      capability: "host.lookupVerifiedAsset",
+      cost: { units: 1, unit: "shodan-query" },
+    });
+
+    const res = await GET(request());
+    const body = (await res.json()) as {
+      priced: { capability: string; units: number; unit: string; measured: boolean }[];
+    };
+    const shodan = body.priced.find((p) => p.capability === "host.lookupVerifiedAsset")!;
+    expect(shodan.measured).toBe(false);
+    expect(shodan.units).toBe(1);
   });
 });

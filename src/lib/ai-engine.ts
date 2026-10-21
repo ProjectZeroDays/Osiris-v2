@@ -223,11 +223,66 @@ function serializeContext(context: IntelligenceContext): string {
    Intelligence Analysis
    ───────────────────────────────────────────────────────────── */
 
+/**
+ * What a Gemini call cost, as the provider reported it.
+ *
+ * The provider counts the tokens it billed for, and the count is on the
+ * response. It is returned rather than discarded because a figure that
+ * is thrown away cannot be reconciled against a bill: the operator would
+ * be left reading Google's dashboard and wondering which calls were
+ * theirs.
+ */
+export interface GeminiUsage {
+  /** Total tokens for the request, prompt and candidates together. */
+  totalTokens: number;
+  /** Tokens in the prompt. */
+  promptTokens: number;
+  /** Tokens in the generated candidates. */
+  candidateTokens: number;
+}
+
+/**
+ * The usage on a Gemini response, or null when the provider reported
+ * none.
+ *
+ * Every field is optional because providers drift, and a missing count
+ * is `null` rather than zero: a zero is a claim that the provider
+ * counted no tokens, and "the provider did not say" is a different
+ * claim.
+ */
+export function readGeminiUsage(response: {
+  usageMetadata?: {
+    totalTokenCount?: number;
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+  };
+}): GeminiUsage | null {
+  const m = response.usageMetadata;
+  if (!m) return null;
+  const num = (v: unknown): number | null =>
+    typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null;
+  const total = num(m.totalTokenCount);
+  const prompt = num(m.promptTokenCount);
+  const candidates = num(m.candidatesTokenCount);
+  if (total === null && prompt === null && candidates === null) return null;
+  return {
+    totalTokens: total ?? (prompt ?? 0) + (candidates ?? 0),
+    promptTokens: prompt ?? 0,
+    candidateTokens: candidates ?? 0,
+  };
+}
+
+/** A Gemini reply, and what it cost. */
+export interface GeminiResult {
+  text: string;
+  usage: GeminiUsage | null;
+}
+
 export async function analyzeIntelligence(
   client: GoogleGenerativeAI,
   context: IntelligenceContext,
   userQuery: string
-): Promise<string> {
+): Promise<GeminiResult> {
   const model: GenerativeModel = client.getGenerativeModel({
     model: 'gemini-2.0-flash',
     systemInstruction: SYSTEM_PROMPT,
@@ -245,7 +300,7 @@ Provide your intelligence assessment based on the operational data above and the
 
   const result = await model.generateContent(prompt);
   const response = result.response;
-  return response.text();
+  return { text: response.text(), usage: readGeminiUsage(response) };
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -255,7 +310,7 @@ Provide your intelligence assessment based on the operational data above and the
 export async function generateBriefing(
   client: GoogleGenerativeAI,
   context: IntelligenceContext
-): Promise<string> {
+): Promise<GeminiResult> {
   const model: GenerativeModel = client.getGenerativeModel({
     model: 'gemini-2.0-flash',
     systemInstruction: SYSTEM_PROMPT,
@@ -272,5 +327,5 @@ Generate the briefing now.`;
 
   const result = await model.generateContent(prompt);
   const response = result.response;
-  return response.text();
+  return { text: response.text(), usage: readGeminiUsage(response) };
 }

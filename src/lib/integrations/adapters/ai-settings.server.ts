@@ -6,7 +6,7 @@ import {
   providerKey,
   isPlausibleModel,
 } from "@/lib/ai/providers.server";
-import { readUsage, recordChatCost } from "@/lib/ai/usage.server";
+import { readUsage, recordChatUsage } from "@/lib/ai/usage.server";
 import {
   startDownload,
   listDownloads,
@@ -132,6 +132,6 @@ export async function chat(
     parsed = { raw: text.slice(0, 20_000) };
   }
 
-  void recordChatCost(ctx.tenantId, readUsage(parsed));
+  void recordChatUsage(ctx.tenantId, readUsage(parsed));
   return { reply: parsed };
 }

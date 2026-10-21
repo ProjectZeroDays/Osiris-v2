@@ -14,6 +14,7 @@ import {
   analyzeIntelligence,
   type IntelligenceContext,
 } from '@/lib/ai-engine';
+import { aiTenant, recordAiUsage } from '@/lib/ai/usage.server';
 
 export const dynamic = 'force-dynamic';
 
@@ -175,7 +176,12 @@ export async function POST(
   // Call Gemini
   try {
     const client = createGeminiClient(apiKey);
-    const analysis = await analyzeIntelligence(client, body.context, body.query.trim());
+    const { text: analysis, usage } = await analyzeIntelligence(client, body.context, body.query.trim());
+
+    // What it cost, as the provider counted it. The key is the
+    // operator's, so a call that spends it is a call whose cost belongs
+    // in the ledger where they can see it.
+    await recordAiUsage(await aiTenant(), usage);
 
     return NextResponse.json(
       {

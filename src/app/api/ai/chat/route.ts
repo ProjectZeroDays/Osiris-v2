@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthContext } from "@/lib/auth/context.server";
+import { getClientIp, isRateLimited } from "@/lib/ssrf-guard";
 import {
   getProvider,
   providerKey,
@@ -25,6 +26,18 @@ export const dynamic = "force-dynamic";
  * request. A key that a provider needs is taken from the environment and
  * never leaves the server.
  *
+ * The key is the operator's, and a provider that needs one spends it, so
+ * a deployment with accounts requires a session for such a call: the same
+ * rule every other metered route follows. A local provider needs no key and
+ * runs on the operator's own machine, so it is allowed without one - the
+ * call costs them nothing they are billed for. The check is before the
+ * call, not after: a refusal that arrives once the provider has been paid
+ * for has already cost money. A deployment with no database has no accounts
+ * and no sign-in, so the call proceeds against the single-tenant identity.
+ *
+ * A caller is also limited to twenty chats a minute by address, so one
+ * runaway client cannot spend the operator's key for everyone.
+ *
  * What the call costs is recorded as well as made. A provider reports the
  * usage of a streamed request in the final message of the stream, after
  * the frame that carries `finish_reason`, so the reply is counted on its
@@ -42,6 +55,21 @@ interface ChatMessage {
 const MAX_MESSAGE_CHARS = 100_000;
 /** The most messages in one request. */
 const MAX_MESSAGES = 100;
+
+/**
+ * How many chats a caller may start in a minute.
+ *
+ * The session check bounds a deployment that has accounts, but a bare
+ * deployment has no sign-in to demand, and the key is the operator's
+ * either way. A per-caller limit is the second lock on the door: it does
+ * not replace the session, it bounds what one caller can spend before
+ * the session is even considered.
+ *
+ * The number is generous for a person and tight for a script, and it is
+ * counted per client address rather than per session, so one runaway
+ * client cannot spend the operator's key for everyone.
+ */
+const CHATS_PER_MINUTE = 20;
 
 function fail(status: number, error: string, extra?: Record<string, unknown>) {
   return NextResponse.json({ error, ...extra }, { status });
@@ -102,6 +130,39 @@ export async function POST(req: Request) {
     headers["x-title"] = "OSIRIS";
   }
 
+  // The tenant comes from the session when there is one, and from the
+  // single-tenant fallback when there is not - the same rule the costs
+  // route reads under, so what is recorded and what is reported name the
+  // same tenant.
+  //
+  // A provider that needs a key spends the operator's money, and the key
+  // is theirs: on a deployment with accounts, a caller with no session is
+  // refused, exactly as every other metered route refuses one. A local
+  // provider needs no key and runs on the operator's own machine, so it
+  // costs nothing they are billed for, and the call is allowed - which
+  // is what a bare deployment running a local model looks like.
+  //
+  // The check is before the call, not after: a refusal that arrives
+  // once the provider has been paid for has already cost money.
+  const { tenantId } = await getAuthContext();
+  if (!tenantId && provider.needsKey) {
+    return fail(401, "CHAT_UNAUTHENTICATED");
+  }
+
+  // The second lock, for the bare deployment and for a client that has
+  // a session. Counted before the call, so a refused chat costs nothing.
+  if (isRateLimited(getClientIp(req), CHATS_PER_MINUTE)) {
+    return fail(429, "CHAT_RATE_LIMITED");
+  }
+
+  // Where the cost is recorded. A local provider on a deployment with
+  // accounts has no tenant, because the caller had no session - the call
+  // was allowed precisely because it cost the operator nothing. It is
+  // recorded against the single-tenant identity, so the spending is
+  // visible rather than lost, and the row it lands in is the one the
+  // operator reads.
+  const costTenant = tenantId ?? "single-tenant";
+
   const upstream = await fetch(`${provider.endpoint}/chat/completions`, {
     method: "POST",
     headers,
@@ -121,23 +182,12 @@ export async function POST(req: Request) {
     });
   }
 
-  // The tenant comes from the session when there is one, and from the
-  // single-tenant fallback when there is not — the same rule the costs
-  // route reads under, so what is recorded and what is reported name the
-  // same tenant.
-  const { tenantId } = await getAuthContext();
-  if (!tenantId) {
-    // Nothing to record against. The reply is not refused for it: a
-    // caller's chat is not hostage to the platform's ledger.
-    return reply(upstream.body, upstream);
-  }
-
   // A streamed reply carries its usage in the last frame of the stream,
   // so it is counted on the way through: bytes go out as they arrive, and
   // the terminal frame is noticed on the way past. Nothing is buffered.
   if (Boolean(p.stream)) {
     const stream = upstream.body.pipeThrough(
-      countingTransform((usage) => void recordChatCost(tenantId, usage)),
+      countingTransform((usage) => void recordChatCost(costTenant, usage)),
     );
     return reply(stream, upstream);
   }
@@ -152,6 +202,6 @@ export async function POST(req: Request) {
     // A body that is not JSON has no usage in it. The reply still goes
     // back to the caller exactly as it arrived.
   }
-  void recordChatCost(tenantId, usage ?? NO_USAGE);
+  void recordChatCost(costTenant, usage ?? NO_USAGE);
   return reply(text, upstream);
 }

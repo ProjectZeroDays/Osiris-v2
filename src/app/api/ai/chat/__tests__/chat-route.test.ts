@@ -14,11 +14,14 @@ import { POST } from "@/app/api/ai/chat/route";
  * only worth anything if the bytes are the provider's.
  */
 
-const { jar, quota } = vi.hoisted(() => ({
+const { jar, quota, db } = vi.hoisted(() => ({
   jar: new Map<string, string>(),
   // What `consumeQuota` was called with, in order. A bare deployment has
   // no database and still counts, which is the case under test.
   quota: [] as Array<{ tenantId: string; tool: string; cost?: { units: number; unit: string } }>,
+  // Whether the deployment has accounts. A deployment with accounts
+  // demands a session; a bare one has no sign-in to demand.
+  db: { hasDatabase: false },
 }));
 
 vi.mock("next/headers", () => ({
@@ -30,7 +33,7 @@ vi.mock("next/headers", () => ({
 
 vi.mock("@/db/client.server", () => ({
   isDatabaseConfigured: false,
-  getDb: () => null,
+  getDb: () => (db.hasDatabase ? ({} as never) : null),
 }));
 
 vi.mock("@/lib/integrations/quota.server", () => ({
@@ -60,12 +63,13 @@ function streamedReply(): string {
 
 /** A stub upstream that streams `text` and records what was asked of it. */
 function stubFetch(text: string, contentType = "text/event-stream") {
-  const seen: { body: string; stream: unknown } = { body: "", stream: null };
+  const seen: { body: string; stream: unknown; calls: number } = { body: "", stream: null, calls: 0 };
   vi.stubGlobal(
     "fetch",
     vi.fn(async (_url: string, init: { body?: string }) => {
       seen.body = init.body ?? "";
       seen.stream = JSON.parse(init.body ?? "{}").stream;
+      seen.calls++;
       return new Response(
         new ReadableStream<Uint8Array>({
           start(controller) {
@@ -103,10 +107,17 @@ vi.mock("@/lib/ai/providers.server", async (importOriginal) => ({
   providerKey: () => "test-key",
 }));
 
-function request(body: Record<string, unknown>): Request {
+/**
+ * A request, as a caller would make it.
+ *
+ * The address is set per test because the rate limit is counted per
+ * client address: without it every case would share one budget and a
+ * test would be refused because an earlier one had spent it.
+ */
+function request(body: Record<string, unknown>, ip = "203.0.113.1"): Request {
   return new Request("http://localhost/api/ai/chat", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", "cf-connecting-ip": ip },
     body: JSON.stringify(body),
   });
 }
@@ -133,9 +144,110 @@ async function ask(body: Record<string, unknown>): Promise<Response> {
 beforeEach(() => {
   jar.clear();
   quota.length = 0;
+  db.hasDatabase = false;
 });
 
 describe("the chat proxy", () => {
+  it("refuses a caller with no session on a deployment that has accounts", async () => {
+    // The key in the environment is the operator's money, and this route
+    // spends it. A deployment with accounts demands a session, exactly as
+    // every other metered route does.
+    //
+    // The check has to come before the call: a refusal after the provider
+    // has already been paid for is a refusal that cost money.
+    db.hasDatabase = true;
+    const seen = stubFetch(streamedReply());
+
+    const res = await POST(
+      request({ provider: "openrouter", model: "openai/gpt-4o", stream: true, messages: [{ role: "user", content: "hi" }] }),
+    );
+
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("CHAT_UNAUTHENTICATED");
+    // The provider was never called, so the operator was never charged.
+    expect(seen.body).toBe("");
+    expect(quota).toHaveLength(0);
+  });
+
+  it("serves a local provider without a session, because it costs nothing", async () => {
+    // A local model runs on the operator's own machine and needs no key,
+    // so the call spends nothing they are billed for. Refusing it would
+    // lock an operator out of their own deployment for the sake of
+    // protecting a key that was never used.
+    db.hasDatabase = true;
+    const seen = stubFetch('{"choices":[{"message":{"content":"hello"}}]}', "application/json");
+
+    const res = await POST(
+      request({ provider: "ollama", model: "qwen3:8b", messages: [{ role: "user", content: "hi" }] }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(seen.calls).toBe(1);
+    // The cost is still recorded, against the single-tenant identity, so
+    // the call is visible rather than lost.
+    expect(quota[0].tenantId).toBe("single-tenant");
+  });
+
+  it("refuses a caller that has run past the per-minute limit", async () => {
+    // The second lock on the door. A bare deployment has no sign-in to
+    // demand, and the key is the operator's either way, so one caller
+    // cannot spend it without bound.
+    const seen = stubFetch(streamedReply());
+    const chat = {
+      provider: "openrouter",
+      model: "openai/gpt-4o",
+      stream: true,
+      messages: [{ role: "user", content: "hi" }],
+    };
+
+    for (let i = 0; i < 20; i++) {
+      const res = await POST(request(chat, "198.51.100.7"));
+      expect(res.status).toBe(200);
+    }
+    // Twenty calls reached the provider.
+    expect(seen.calls).toBe(20);
+
+    const res = await POST(request(chat, "198.51.100.7"));
+    expect(res.status).toBe(429);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("CHAT_RATE_LIMITED");
+    // The refused chat never reached the provider, so it cost nothing.
+    expect(seen.calls).toBe(20);
+  });
+
+  it("counts the limit per client, not globally", async () => {
+    // One caller running past the limit must not silence another.
+    const seen = stubFetch(streamedReply());
+    const chat = {
+      provider: "openrouter",
+      model: "openai/gpt-4o",
+      stream: true,
+      messages: [{ role: "user", content: "hi" }],
+    };
+
+    for (let i = 0; i < 20; i++) {
+      await POST(request(chat, "198.51.100.8"));
+    }
+    const res = await POST(request(chat, "198.51.100.9"));
+    expect(res.status).toBe(200);
+    expect(seen.body).not.toBe("");
+  });
+
+  it("serves a bare deployment, which has no sign-in to demand", async () => {
+    // A deployment with no database has one identity and no accounts, so
+    // the call proceeds against it and its cost is recorded.
+    stubFetch(streamedReply());
+    const res = await POST(
+      request({ provider: "openrouter", model: "openai/gpt-4o", stream: true, messages: [{ role: "user", content: "hi" }] }),
+    );
+    expect(res.status).toBe(200);
+    // The cost is recorded as the reply is read, so the stream has to be
+    // drained before the ledger has been written.
+    await drain(res);
+    expect(quota[0].tenantId).toBe("single-tenant");
+  });
+
   it("forwards a streamed reply byte for byte", async () => {
     const text = streamedReply();
     stubFetch(text);

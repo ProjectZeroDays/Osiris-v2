@@ -113,7 +113,7 @@ export const API_GROUPS: ApiGroup[] = [
         summary: 'Live ADS-B aircraft, bucketed by class.',
         returns: ['commercial_flights', 'private_flights', 'private_jets', 'military_flights', 'source'],
         notes:
-          'Keyless via adsb.lol. Each bucket is an array; sum them for a total. `OPENSKY_CLIENT_ID` / `OPENSKY_CLIENT_SECRET` are reserved for higher rate limits and are not required.',
+          'Keyless via adsb.lol. Each bucket is an array; sum them for a total. `OPENSKY_CLIENT_ID` / `OPENSKY_CLIENT_SECRET` are reserved for higher rate limits and are not required. OpenSky is metered in credits, and each call it answers for is recorded as an `opensky-credit` in /api/integrations/costs under `flights`, so an operator can see what the refresh has spent.',
       },
       {
         path: '/api/satellites',
@@ -753,9 +753,9 @@ export const API_GROUPS: ApiGroup[] = [
         params: [
           { name: 'day', desc: 'The day to report, as `YYYY-MM-DD`. Defaults to today.', example: '2026-10-21' },
         ],
-        returns: ['ok', 'day', 'tenantId', 'lines', 'priced', 'total', 'detail'],
+        returns: ['ok', 'day', 'tenantId', 'lines', 'priced', 'summary', 'detail'],
         notes:
-          "A quota says how many calls a tenant may make; a cost says what those calls cost. Most of the platform is the operator's own machine reading their own files, and a few capabilities reach a service that meters — a Shodan query is a credit, a request to a paid model provider is a request. The unit is the provider's, not money: the platform knows how many have been spent, and what one is worth is between the operator and their bill. `priced` lists the capabilities that cost anything; `lines` reports every tool used today, including the free ones, because a tool that was used and cost nothing is a different fact from a tool that was not used.",
+          "A quota says how many calls a tenant may make; a cost says what those calls cost. Most of the platform is the operator's own machine reading their own files, and a few capabilities reach a service that meters - a Shodan query is a credit, a request to a paid model provider is a request. The unit is the provider's, not money: the platform knows how many have been spent, and what one is worth is between the operator and their bill. `priced` lists the capabilities that cost anything; `lines` reports every tool used today, including the free ones, because a tool that was used and cost nothing is a different fact from a tool that was not used. There is no `total`: the units are not comparable, and a number that reads like one would be believed. `summary` carries, per tool, calls, units, unit, reportedCalls and unreportedCalls, so a zero-token row says whether it was a free model or a metered reply that ended before its usage frame. In `priced`, a capability marked `measured` is one whose cost is not knowable in advance - a model provider reports its token usage after the reply - so its declared units are zero and the figure that was actually recorded is in `lines`.",
       },
       {
         path: '/api/integrations/entities',
@@ -821,7 +821,7 @@ export const API_GROUPS: ApiGroup[] = [
         summary: 'Cross-feed correlation and threat assessment over an intelligence context.',
         returns: ['…analysis'],
         notes:
-          'Body is an `IntelligenceContext`. Exceeding the limit returns 429. Feed it straight from the read endpoints — the shape matches what they return.',
+          'Body is an `IntelligenceContext`. Exceeding the limit returns 429. Feed it straight from the read endpoints - the shape matches what they return. The call reaches Gemini on the server\'s key, and what it spent is recorded as `ai-token` against the tenant, in /api/integrations/costs under `ai-analyst`.',
         bodyExample: `{
   "earthquakes": [],
   "news": [],
@@ -835,7 +835,7 @@ export const API_GROUPS: ApiGroup[] = [
         method: 'POST',
         summary: 'Structured threat briefing in the style of a daily intelligence product.',
         returns: ['…briefing'],
-        notes: 'Same `IntelligenceContext` body and same rate limit as `/api/ai/analyze`.',
+        notes: 'Same `IntelligenceContext` body and same rate limit as `/api/ai/analyze`, and the same recording of what the call spent.',
         bodyExample: `{
   "earthquakes": [],
   "news": [],
@@ -849,6 +849,8 @@ export const API_GROUPS: ApiGroup[] = [
         method: 'POST',
         summary: 'One-click read-out for the Alerts or Markets panel. Alerts also return a structured brief: threads by theatre, perspective and seismic summary.',
         returns: ['mode', 'overview', 'highlights', 'generatedBy', 'generatedAt', 'brief'],
+        notes:
+          'Rate limited to 20 requests a minute per address. When Gemini is configured the read-out comes from it and what the call spent is recorded as `ai-token` against the tenant; the built-in fallback analyst runs on the operator\'s own machine and costs nothing, so it records nothing.',
         bodyExample: `{
   "mode": "alerts",
   "payload": {
@@ -880,7 +882,7 @@ export const API_GROUPS: ApiGroup[] = [
         summary: 'Chat against any provider the deployment has configured.',
         returns: ['…reply'],
         notes:
-          'The provider is chosen from the registry, so a request can only reach an origin the operator configured, and the model id is validated before it is used. An unconfigured provider returns 503; a bad model id returns 400. What the call cost is recorded as well as made: a provider reports its token usage in the final frame of a streamed reply, so the reply is counted on its way through and is never held up to be read. The figure lands in /api/integrations/costs under `ai-token`, or as one `ai-request` when the provider reported none.',
+          'The provider is chosen from the registry, so a request can only reach an origin the operator configured, and the model id is validated before it is used. An unconfigured provider returns 503; a bad model id returns 400. A provider that needs a key spends the operator\'s money, so on a deployment with accounts such a call requires a session: an unsigned caller is refused with 401 before the provider is called. A local provider needs no key and runs on the operator\'s own machine, so it is served without one. A caller is limited to 20 chats a minute by address, refused with 429. What the call cost is recorded as well as made: a provider reports its token usage in the final frame of a streamed reply, so the reply is counted on its way through and is never held up to be read. The figure lands in /api/integrations/costs under `ai-token`.',
         bodyExample: `{
   "provider": "openrouter",
   "model": "…validated model id",

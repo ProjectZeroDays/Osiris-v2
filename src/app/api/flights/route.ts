@@ -1,6 +1,7 @@
 
 import { NextResponse } from 'next/server';
 import { stealthFetch } from '@/lib/stealthFetch';
+import { recordFlightsUsage } from '@/lib/integrations/flights-usage.server';
 
 export const maxDuration = 60;
 
@@ -369,6 +370,10 @@ export async function GET() {
         console.warn('[OSIRIS] OpenSky 429 — cooling down 15 min');
         await osRes.value.body?.cancel();
       } else if (osRes.value.ok) {
+        // The call went through and was answered, so a credit was spent.
+        // A 429 was refused rather than served, so it costs nothing and
+        // is not recorded.
+        await recordFlightsUsage();
         try {
           const data = await osRes.value.json();
           const states = data.states || [];

@@ -27,7 +27,13 @@ import { SAFE_CAPABILITIES } from "./capabilities.server";
 
 /** What a call costs, in the unit the provider charges in. */
 export interface CapabilityCost {
-  /** How many units one call costs. */
+  /**
+   * How many units one call costs.
+   *
+   * Zero for a measured capability: the number of units is not knowable
+   * before the call, because it depends on what the provider does with
+   * it. A measured capability's `units` is a lower bound, not a figure.
+   */
   readonly units: number;
   /**
    * The unit the provider charges in.
@@ -37,6 +43,17 @@ export interface CapabilityCost {
    * because "credit" on its own would not say whose credit.
    */
   readonly unit: string;
+  /**
+   * True when the units are measured after the call rather than declared
+   * before it.
+   *
+   * A model provider says how many tokens a reply used, and it says so
+   * after the reply, so the cost of a chat cannot be known in advance.
+   * A measured capability is charged by whoever measured it, and the
+   * dispatcher charges only the call — charging a declared figure as well
+   * would bill the same chat twice, in two different units.
+   */
+  readonly measured?: boolean;
 }
 
 /** The unit a capability that costs the operator nothing is in. */
@@ -164,14 +181,18 @@ export const CAPABILITY_COSTS = {
     "ai.listDownloads": free(),
     "ai.startDownload": free(),
     "ai.removeModel": free(),
-    // A request to a model provider. The unit declared here is the
-    // request, because this path makes no call of its own and so has
-    // nothing to measure: the dispatcher prices a call before it is
-    // made. The call that *is* made goes through the chat route, which
-    // records what the provider reported in `ai-token`; this entry is
-    // what a reader sees when working out what a call could cost before
-    // making one, and the chat route never writes this unit.
-    "ai.chat": { units: 1, unit: "ai-request" },
+    // A request to a model provider. The unit is the token, and the
+    // number of them is measured: the provider reports what a reply
+    // used, and it says so after the reply, so no figure is knowable
+    // before the call is made.
+    //
+    // `measured` is what stops the double charge. The dispatcher charges
+    // every call against the day's allowance, and a chat made through
+    // the dispatcher would otherwise be charged the declared request here
+    // *and* the measured tokens by the adapter — twice, in two different
+    // units, on the same row. A measured capability is charged only by
+    // whoever measured it.
+    "ai.chat": { units: 0, unit: "ai-token", measured: true },
   },
   "tool-collection": {
     "collection.listTools": free(),
@@ -204,7 +225,11 @@ export function costingCapabilities(
   const table = (CAPABILITY_COSTS as Record<string, Record<string, CapabilityCost>>)[tool];
   if (!table) return [];
   return Object.entries(table)
-    .filter(([, c]) => c.units > 0)
+    // A measured capability costs something even though its units are not
+    // knowable in advance: it is metered, and the figure arrives with the
+    // reply. Leaving it out of this list would tell an operator that
+    // their model calls are free.
+    .filter(([, c]) => c.units > 0 || c.measured)
     .map(([capability, cost]) => ({ capability, cost }));
 }
 

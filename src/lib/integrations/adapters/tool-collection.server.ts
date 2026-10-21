@@ -163,7 +163,14 @@ export async function execute(payload: unknown, ctx: AdapterContext) {
   ).catch(() => null);
 
   if (!res) throw new Error("COLLECTION_WORKER_UNREACHABLE");
-  if (!res.ok) throw new Error(`COLLECTION_WORKER_HTTP_${res.status}`);
+  if (!res.ok) {
+    // The worker refuses a tool call when it is already running as many
+    // as it will, and says so with its own code. That is a different
+    // thing from a failure, and a caller can retry it, so it is passed
+    // on rather than flattened into a bare HTTP status.
+    if (res.status === 429) throw new Error("COLLECTION_WORKER_BUSY");
+    throw new Error(`COLLECTION_WORKER_HTTP_${res.status}`);
+  }
 
   const body = (await res.json()) as {
     success?: boolean;

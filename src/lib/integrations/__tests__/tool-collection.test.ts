@@ -93,6 +93,38 @@ describe("the tool-collection adapter", () => {
       "COLLECTION_CATEGORY_REQUIRED",
     );
   });
+
+  it("says the worker is busy when the worker is busy", async () => {
+    // The worker refuses a tool call when it is already running as many
+    // as it will. That is not a failure and not a gateway error: the
+    // worker is busy, and the caller can come back. A bare HTTP status
+    // would flatten that into something that reads like a fault.
+    process.env.OSIRIS_WORKER_URL = "http://127.0.0.1:8080";
+    process.env.OSIRIS_WORKER_KEY = "key";
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url.endsWith("/api/tools")) {
+        return new Response(
+          JSON.stringify({
+            total: 1,
+            categories: ["recon"],
+            tools: { recon: [{ name: "shodan", path: "shodan.py", category: "recon" }] },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          error: "The worker is already running 8 tools.",
+          error_code: "WORKER_BUSY",
+        }),
+        { status: 429, headers: { "content-type": "application/json" } },
+      );
+    }));
+
+    await expect(
+      collection.execute({ category: "recon", tool: "shodan", params: {} }, ctx),
+    ).rejects.toThrow("COLLECTION_WORKER_BUSY");
+  });
 });
 
 describe("what a tool's result becomes", () => {

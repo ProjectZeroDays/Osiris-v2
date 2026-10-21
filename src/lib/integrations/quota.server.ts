@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db/client.server";
 import { quotaCounters } from "@/db/schema";
 
@@ -14,6 +14,21 @@ import { quotaCounters } from "@/db/schema";
 
 /** The default ceiling when a tool does not declare one. */
 export const DEFAULT_DAILY_QUOTA = 200;
+
+/**
+ * The tenant a platform-wide cost is recorded against.
+ *
+ * Some spending is not a tenant's: the aircraft feed is refreshed
+ * whether or not anyone asks for it, and the operator pays for it once
+ * for the whole deployment. Recording that against a tenant would make
+ * it invisible to everyone else, and recording it against a tenant that
+ * may not exist would lose it entirely. So it has a tenant of its own,
+ * and every tenant's cost view includes it.
+ *
+ * The name is prefixed so it cannot collide with a tenant id, which is
+ * a free-text column.
+ */
+export const PLATFORM_TENANT = "platform:shared";
 
 interface MemoryCounter {
   count: number;
@@ -69,7 +84,12 @@ export async function consumeQuota(
       return { allowed: false, used, limit, remaining: 0, reason: "QUOTA_EXCEEDED" };
     }
     const prev = memory.get(key);
-    memory.set(key, { count: used + 1, costUnits: (prev?.costUnits ?? 0) + units, costUnit: unit, reportedCalls: (prev?.reportedCalls ?? 0) + (reported ? 1 : 0) });
+    memory.set(key, {
+      count: used + 1,
+      costUnits: (prev?.costUnits ?? 0) + units,
+      costUnit: units > 0 ? unit : (prev?.costUnit ?? unit),
+      reportedCalls: (prev?.reportedCalls ?? 0) + (reported ? 1 : 0),
+    });
     return { allowed: true, used: used + 1, limit, remaining: limit - used - 1 };
   }
 
@@ -96,9 +116,11 @@ export async function consumeQuota(
       .set({
         count: used + 1,
         costUnits: (row[0].costUnits ?? 0) + units,
-        // The unit is written every time, so a row cannot end up with a
-        // count in one unit and a total in another.
-        costUnit: unit,
+        // The unit is rewritten only by a call that carries units, so a
+        // free capability called later cannot rename a row that holds a
+        // measured cost. A row cannot end up with a count in one unit
+        // and a total in another.
+        costUnit: units > 0 ? unit : (row[0].costUnit ?? unit),
         reportedCalls: (row[0].reportedCalls ?? 0) + (reported ? 1 : 0),
       })
       .where(
@@ -121,6 +143,81 @@ export async function consumeQuota(
   }
 
   return { allowed: true, used: used + 1, limit, remaining: limit - used - 1 };
+}
+
+/**
+ * Record what a call cost, without counting another call.
+ *
+ * A capability whose cost is measured — a model provider reports its
+ * token usage after the reply — cannot be charged before the call, so
+ * the count is charged by whoever dispatched it and the cost is charged
+ * by whoever measured it. Charging both in one place would count the
+ * same chat twice and spend the day's allowance twice over.
+ *
+ * The limit is not consulted: the call has already been made, so
+ * refusing to record its cost would hide work that was really done.
+ */
+export async function recordCost(
+  tenantId: string,
+  tool: string,
+  cost: { units: number; unit: string; reported?: boolean },
+): Promise<void> {
+  const day = dayKey();
+  const db = getDb();
+  const units = cost.units;
+  const unit = cost.unit;
+  const reported = cost.reported ?? false;
+
+  if (!db) {
+    const key = memoryKey(tenantId, tool, day);
+    const prev = memory.get(key);
+    memory.set(key, {
+      count: prev?.count ?? 0,
+      costUnits: (prev?.costUnits ?? 0) + units,
+      costUnit: unit,
+      reportedCalls: (prev?.reportedCalls ?? 0) + (reported ? 1 : 0),
+    });
+    return;
+  }
+
+  const row = await db
+    .select()
+    .from(quotaCounters)
+    .where(
+      and(
+        eq(quotaCounters.tenantId, tenantId),
+        eq(quotaCounters.tool, tool),
+        eq(quotaCounters.day, day),
+      ),
+    )
+    .limit(1);
+
+  if (row[0]) {
+    await db
+      .update(quotaCounters)
+      .set({
+        costUnits: (row[0].costUnits ?? 0) + units,
+        costUnit: unit,
+        reportedCalls: (row[0].reportedCalls ?? 0) + (reported ? 1 : 0),
+      })
+      .where(
+        and(
+          eq(quotaCounters.tenantId, tenantId),
+          eq(quotaCounters.tool, tool),
+          eq(quotaCounters.day, day),
+        ),
+      );
+  } else {
+    await db.insert(quotaCounters).values({
+      tenantId,
+      tool,
+      day,
+      count: 0,
+      costUnits: units,
+      costUnit: unit,
+      reportedCalls: reported ? 1 : 0,
+    });
+  }
 }
 
 /**
@@ -275,6 +372,13 @@ export interface CostLine {
  * A tool whose capabilities are free is not left out: it is reported with
  * zero units, so a reader can see that the tool was used and cost
  * nothing, which is a different thing from the tool not being used.
+ *
+ * The platform's own costs are included. Some of what the deployment
+ * spends is spent once for everybody rather than for a tenant — the
+ * aircraft feed is refreshed whether or not anyone is watching, and the
+ * operator pays for it. Those land under [PLATFORM_TENANT] and appear
+ * in every tenant's view, because they are part of what the deployment
+ * costs to run.
  */
 export async function readCosts(
   tenantId: string,
@@ -287,7 +391,7 @@ export async function readCosts(
     for (const [key, m] of memory) {
       const parts = key.split("\0");
       if (parts.length !== 3) continue;
-      if (parts[0] !== tenantId) continue;
+      if (parts[0] !== tenantId && parts[0] !== PLATFORM_TENANT) continue;
       if (parts[2] !== dayKey2) continue;
       out.push({
         tool: parts[1],
@@ -311,7 +415,7 @@ export async function readCosts(
     .from(quotaCounters)
     .where(
       and(
-        eq(quotaCounters.tenantId, tenantId),
+        inArray(quotaCounters.tenantId, [tenantId, PLATFORM_TENANT]),
         eq(quotaCounters.day, day),
       ),
     )

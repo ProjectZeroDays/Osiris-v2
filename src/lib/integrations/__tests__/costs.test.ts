@@ -65,12 +65,60 @@ describe("the cost table", () => {
   it("calls a free capability free", () => {
     // A capability with no units must say so in its unit, rather than
     // leaving the unit to be guessed.
+    //
+    // A measured capability is the exception, and it is a narrow one: its
+    // units are not knowable before the call, so it declares zero and
+    // names the unit it will be measured in. It must still name a real
+    // unit, because "the cost is measured somewhere else" is not a unit
+    // an operator can reconcile against a bill.
     for (const { tool, capability, cost } of everyCapability()) {
+      if (cost!.measured) {
+        expect(cost!.unit, `${tool}:${capability}`).not.toBe(FREE);
+        expect(cost!.unit, `${tool}:${capability}`).toMatch(/[a-z]+-[a-z]+/);
+        continue;
+      }
       if (cost!.units === 0) {
         expect(cost!.unit, `${tool}:${capability}`).toBe(FREE);
       } else {
         expect(cost!.unit, `${tool}:${capability}`).not.toBe(FREE);
       }
+    }
+  });
+
+  it("measures a capability whose cost is only knowable afterwards", () => {
+    // A model provider reports its usage after the reply, so the cost of
+    // a chat cannot be declared in advance. A measured capability is
+    // charged by whoever measured it, and the dispatcher charges only
+    // the call — the two are not both applied, or one chat is billed
+    // twice in two different units.
+    const chat = costFor("ai-settings", "ai.chat");
+    expect(chat).not.toBeNull();
+    expect(chat!.measured).toBe(true);
+    expect(chat!.units).toBe(0);
+    expect(chat!.unit).toBe("ai-token");
+  });
+
+  it("measures only the capabilities whose cost cannot be known in advance", () => {
+    // Every other capability has a fixed price, and a fixed price is
+    // what a dispatcher can charge before the work.
+    for (const { tool, capability, cost } of everyCapability()) {
+      if (cost!.measured) continue;
+      expect(cost!.units, `${tool}:${capability}`).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("prices a measured capability so the dispatcher charges no cost for it", () => {
+    // The dispatcher's rule, held in the table rather than in the
+    // dispatcher's code, so the two cannot drift apart: a measured
+    // capability is charged the call and nothing else. If the dispatcher
+    // charged a declared figure as well, one chat would be billed twice,
+    // in two different units, and the day's allowance would be spent
+    // twice over.
+    const measured = everyCapability().filter((c) => c.cost!.measured);
+    expect(measured.length).toBeGreaterThan(0);
+    for (const { tool, capability, cost } of measured) {
+      // Nothing to charge: the figure is not knowable in advance.
+      expect(cost!.units, `${tool}:${capability}`).toBe(0);
     }
   });
 

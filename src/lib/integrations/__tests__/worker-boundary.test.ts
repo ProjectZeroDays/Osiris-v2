@@ -32,13 +32,20 @@ function startWorker(port: number, key: string | null): ChildProcess {
 /**
  * Wait for the worker to answer.
  *
- * The worker scans the whole tool collection before it binds the port, so
- * it takes a while to come up — longer still when the rest of the suite
- * is running alongside it and the machine is busy. The budget here has to
- * match the test's own timeout, or a slow start reads as a failure of the
- * boundary rather than of the clock.
+ * The worker scans the tool collection before it binds the port, so it
+ * takes a while to come up. That scan used to walk into the vendored
+ * trees in the collection - one category carries a node_modules - and
+ * the worker took almost a minute to start, which was long enough that
+ * a caller waiting on it timed out and the platform's own test of the
+ * boundary failed whenever the rest of the suite was running alongside
+ * it. The scan now skips the vendored trees and the worker is up in
+ * seconds.
+ *
+ * The wait is still shorter than the test's own timeout, so a worker
+ * that genuinely never comes up reports that it did not come up rather
+ * than timing out with nothing to say.
  */
-async function waitForHealth(port: number, tries = 240): Promise<boolean> {
+async function waitForHealth(port: number, tries = 200): Promise<boolean> {
   for (let i = 0; i < tries; i++) {
     try {
       const res = await fetch(`http://127.0.0.1:${port}/api/health`);
@@ -48,7 +55,6 @@ async function waitForHealth(port: number, tries = 240): Promise<boolean> {
   }
   return false;
 }
-
 describe("the tool-collection worker", () => {
   const KEY = "test-worker-key-abcdef";
   let child: ChildProcess | null = null;

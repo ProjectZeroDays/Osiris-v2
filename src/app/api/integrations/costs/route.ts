@@ -46,12 +46,19 @@ export async function GET(req: Request) {
 
   // The capabilities that cost something, so a reader can see which of
   // the platform's calls are the ones that cost.
+  //
+  // A measured capability is here too, and its `units` is zero because
+  // the figure is not knowable in advance. Reporting it as zero without
+  // saying so would read as "free", which is the opposite of the truth:
+  // the cost arrives with the reply. So it is marked `measured`, and the
+  // figure that was actually recorded is in `lines`.
   const priced = SECURITY_TOOL_CARDS.flatMap((card) =>
     costingCapabilities(card.id as SecurityToolId).map((c) => ({
       tool: card.id,
       capability: c.capability,
       units: c.cost.units,
       unit: c.cost.unit,
+      measured: Boolean(c.cost.measured),
     })),
   );
 
