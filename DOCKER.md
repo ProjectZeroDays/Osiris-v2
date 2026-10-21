@@ -39,6 +39,17 @@ What the compose file does:
   `3000`). Set `OSIRIS_PORT` in `.env` to remap it, e.g. `OSIRIS_PORT=3005`
   when 3000 is already in use — no need to edit the compose file.
 - **`restart: unless-stopped`** — survives reboots.
+- **`healthcheck:`** — the container's readiness, not its liveness. It asks
+  `/api/ready`, which answers 200 only when the instance can actually
+  serve: the database is reachable and has its tables, there is at least
+  one account anybody can sign in as, and the tool-collection worker
+  answers if one is configured. A container that is up and useless is a
+  container a restart policy should know about.
+
+  The first start of a deployment with a database is expected to be
+  unhealthy for a moment: it has no accounts until somebody opens the
+  first-run screen and creates the first administrator. The
+  `start_period` covers that.
 
 Common commands:
 
@@ -46,6 +57,36 @@ Common commands:
 docker compose logs -f          # follow logs
 docker compose up -d --build    # rebuild locally after pulling new code
 docker compose down             # stop & remove
+```
+
+### The two probes
+
+The platform answers two questions about itself, and they are different
+questions. Point a load balancer at the second one and a container check
+at the second one.
+
+| Route | Question | Answers |
+|-------|----------|---------|
+| `/api/health` | Is the process up? | 200, always, and it checks nothing else on purpose. A probe that fans out to a dozen third-party APIs on every call is a self-inflicted outage under load. |
+| `/api/ready` | Can this instance serve? | 200 when it can, 503 when it cannot, and the body says which check failed. |
+
+`/api/ready` checks three things:
+
+- **the database** — reachable, and holding the tables the platform needs.
+  A migration that was never applied is a table that is not there.
+- **the accounts** — at least one account that is not disabled. A platform
+  with a database and no accounts demands a session and has nobody to
+  make one for: it is up and useless.
+- **the worker** — the tool-collection worker answers, if one is
+  configured. It is not required; a platform without one works, with the
+  wide collection unavailable.
+
+Both answer without a session, because a probe cannot sign in and a
+check a probe cannot reach is a check that never fires. Neither says
+anything about a tenant.
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3000/api/ready
 ```
 
 ### Pull the prebuilt image from GHCR
@@ -143,6 +184,7 @@ them only if you extend the relevant route or hit rate limits.
 |----------|---------|---------|
 | `OSIRIS_TELEGRAM_CHANNELS` | Comma-separated list of public Telegram channel usernames (no `@`) to scrape for the **Telegram OSINT** map layer. Overrides the curated default set. | `osintdefender,insiderpaper,aljazeeraenglish,nexta_live,war_monitor` |
 | `OSIRIS_PORT` | Host port the compose file publishes (container itself always listens on 3000). | `3000` |
+| `OSIRIS_REGISTRY_REQUIRE_AUTH` | Set to `1` to require a session on `/api/integrations/tools` (the tool registry the native apps read). Only meaningful on a **database** deployment — a bare deployment has no sign-in, so its single-tenant operator is always let through. | unset (registry open) |
 
 ### Keyless sources (no configuration needed)
 
