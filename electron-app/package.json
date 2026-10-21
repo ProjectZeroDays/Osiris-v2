@@ -1,0 +1,26 @@
+{
+  "name": "osiris-electron",
+  "version": "1.0.0",
+  "description": "Osiris native Windows app",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --x64"
+  },
+  "build": {
+    "appId": "com.osiris.electron",
+    "productName": "Osiris",
+    "win": {
+      "target": ["nsis"],
+      "icon": "public/icon.ico"
+    },
+    "files": ["main.js", "preload.js", "platform.js", "src/**/*", "public/**/*"],
+    "directories": {
+      "output": "dist"
+    }
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^25.0.0"
+  }
+}

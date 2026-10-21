@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="osiris_purple">#6750A4</color>
+    <color name="osiris_purple_dark">#4B3490</color>
+    <color name="osiris_background">#FFFFFF</color>
+    <color name="osiris_splashscreen_background">#FFFFFF</color>
+</resources>

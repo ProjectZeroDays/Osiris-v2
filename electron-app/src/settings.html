@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Osiris Settings</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --primary: #58a6ff;
+    --text: #c9d1d9;
+    --text-secondary: #8b949e;
+    --border: #30363d;
+    --success: #3fb950;
+    --warning: #d29922;
+    --danger: #f85149;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Segoe UI", "Inter", system-ui, sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+  header { padding: 20px 24px; border-bottom: 1px solid var(--border); background: var(--surface); }
+  header h1 { font-size: 20px; font-weight: 700; display: flex; align-items: center; gap: 12px; }
+  header h1::before { content: ''; width: 32px; height: 32px; background: var(--primary); border-radius: 8px; mask: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.59-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.56.24-1.09.56-1.59.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.07.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.59.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.56-.24 1.09-.56 1.59-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.03-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>') center/contain no-repeat; }
+  main { flex: 1; padding: 24px; overflow-y: auto; }
+  .section { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 16px; }
+  .section h2 { font-size: 16px; font-weight: 600; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+  .setting-row { display: flex; align-items: center; justify-content: space-between; padding: 16px 0; border-bottom: 1px solid var(--border); }
+  .setting-row:last-child { border-bottom: none; }
+  .setting-info { display: flex; flex-direction: column; gap: 4px; }
+  .setting-info label { font-size: 14px; font-weight: 500; }
+  .setting-info span { font-size: 12px; color: var(--text-secondary); }
+  .toggle { position: relative; width: 48px; height: 28px; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--border); border-radius: 28px; transition: .3s; }
+  .toggle .slider:before { position: absolute; content: ''; height: 20px; width: 20px; left: 4px; bottom: 4px; background-color: white; border-radius: 50%; transition: .3s; }
+  .toggle input:checked + .slider { background-color: var(--primary); }
+  .toggle input:checked + .slider:before { transform: translateX(20px); }
+  .btn { padding: 10px 20px; border-radius: 8px; border: none; font-size: 13px; font-weight: 600; cursor: pointer; transition: background .2s, transform .1s; }
+  .btn:active { transform: scale(0.98); }
+  .btn-primary { background: var(--primary); color: #0d1117; }
+  .btn-primary:hover { background: #79b8ff; }
+  .btn-secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+  .btn-secondary:hover { background: #21262d; }
+  .btn-danger { background: var(--danger); color: white; }
+  .btn-danger:hover { background: #ff7b72; }
+  .btn-group { display: flex; gap: 8px; }
+  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .info-item { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; }
+  .info-item label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); margin-bottom: 4px; display: block; }
+  .info-item span { font-family: 'Monospace', monospace; font-size: 13px; }
+  .version-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 9999px; background: rgba(88,166,255,0.1); color: var(--primary); font-size: 12px; font-weight: 600; border: 1px solid rgba(88,166,255,0.2); }
+  footer { padding: 16px 24px; border-top: 1px solid var(--border); background: var(--surface); text-align: center; font-size: 11px; color: var(--text-secondary); }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Settings <span class="version-badge" id="versionBadge">v1.0.2</span></h1>
+  </header>
+  <main>
+    <section class="section">
+      <h2>General</h2>
+      <div class="setting-row">
+        <div class="setting-info">
+          <label>Minimize to Tray</label>
+          <span>Keep Osiris running in system tray when closed</span>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="minimizeToTray" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <label>Auto Check Updates</label>
+          <span>Automatically check for updates on startup</span>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="autoUpdates" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <label>Start on Login</label>
+          <span>Launch Osiris automatically at system startup</span>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="startOnLogin">
+          <span class="slider"></span>
+        </label>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Appearance</h2>
+      <div class="setting-row">
+        <div class="setting-info">
+          <label>Dark Mode</label>
+          <span>Use dark theme (system preference by default)</span>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="darkMode" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <label>Compact Mode</label>
+          <span>Reduce padding and spacing for dense UI</span>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="compactMode">
+          <span class="slider"></span>
+        </label>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Platform</h2>
+      <div class="setting-row">
+        <div class="setting-info">
+          <label>Platform address</label>
+          <span>Where this app finds the Osiris platform. The tool registry and the dispatcher live there.</span>
+        </div>
+        <input type="text" id="platformUrl" placeholder="http://localhost:3000" style="width: 220px; padding: 9px 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); color: var(--text); font-size: 13px;" />
+      </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <label>Session</label>
+          <span id="sessionState">Checking the platform…</span>
+        </div>
+        <div class="btn-group">
+          <button class="btn btn-secondary" id="signOutBtn" hidden>Sign out</button>
+        </div>
+      </div>
+      <div class="setting-row" id="signInRow">
+        <div class="setting-info">
+          <label>Sign in</label>
+          <span>The platform demands a session before it will run a tool. The session is held by the app, encrypted with the operating system's own store where it has one.</span>
+        </div>
+        <div class="btn-group" style="flex-wrap: wrap; justify-content: flex-end;">
+          <input type="email" id="signInEmail" placeholder="you@example.com" autocomplete="username" style="padding: 9px 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); color: var(--text); font-size: 13px; width: 180px;" />
+          <input type="password" id="signInPassword" placeholder="Password" autocomplete="current-password" style="padding: 9px 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); color: var(--text); font-size: 13px; width: 160px;" />
+          <button class="btn btn-primary" id="signInBtn">Sign in</button>
+        </div>
+      </div>
+      <div id="signInError" style="font-size: 12px; color: var(--danger); padding-bottom: 8px;" hidden></div>
+    </section>
+
+    <section class="section">
+      <h2>System Information</h2>
+      <div class="info-grid" id="systemInfo">
+        <div class="info-item"><label>Platform</label><span id="sysPlatform">-</span></div>
+        <div class="info-item"><label>Architecture</label><span id="sysArch">-</span></div>
+        <div class="info-item"><label>CPU Cores</label><span id="sysCpus">-</span></div>
+        <div class="info-item"><label>Memory</label><span id="sysMemory">-</span></div>
+        <div class="info-item"><label>System Uptime</label><span id="sysUptime">-</span></div>
+        <div class="info-item"><label>Electron</label><span id="sysElectron">-</span></div>
+        <div class="info-item"><label>Node.js</label><span id="sysNode">-</span></div>
+        <div class="info-item"><label>Chromium</label><span id="sysChrome">-</span></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Actions</h2>
+      <div class="setting-row">
+        <div class="setting-info">
+          <label>Check for Updates</label>
+          <span>Manually check for application updates</span>
+        </div>
+        <button class="btn btn-primary" id="checkUpdatesBtn">Check Now</button>
+      </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <label>Clear Cache</label>
+          <span>Clear application cache and stored data</span>
+        </div>
+        <button class="btn btn-secondary" id="clearCacheBtn">Clear Cache</button>
+      </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <label>Reset Settings</label>
+          <span>Restore all settings to defaults</span>
+        </div>
+        <button class="btn btn-danger" id="resetSettingsBtn">Reset All</button>
+      </div>
+    </section>
+  </main>
+  <footer>
+    Osiris v<span id="footerVer">1.0.2</span> • Settings are stored locally
+  </footer>
+  <script>
+    document.getElementById('versionBadge').textContent = 'v' + (window.osirisAPI?.version || '1.0.2');
+    document.getElementById('footerVer').textContent = window.osirisAPI?.version || '1.0.2';
+
+    async function loadSystemInfo() {
+      try {
+        const info = await window.osirisAPI.getSystemInfo();
+        document.getElementById('sysPlatform').textContent = info.platform;
+        document.getElementById('sysArch').textContent = info.arch;
+        document.getElementById('sysCpus').textContent = info.cpus;
+        document.getElementById('sysMemory').textContent = info.memory;
+        document.getElementById('sysUptime').textContent = info.uptime;
+        document.getElementById('sysElectron').textContent = info.electron;
+        document.getElementById('sysNode').textContent = info.node;
+        document.getElementById('sysChrome').textContent = info.chrome;
+      } catch (e) { console.error('Failed to load system info:', e); }
+    }
+    loadSystemInfo();
+
+    /* The platform's session. The token is held by the main process; this
+       window asks for a sign-in and is told whether one succeeded. */
+    async function refreshPlatformState() {
+      const stateLabel = document.getElementById('sessionState');
+      const signInRow = document.getElementById('signInRow');
+      const signOutBtn = document.getElementById('signOutBtn');
+      const error = document.getElementById('signInError');
+      const urlInput = document.getElementById('platformUrl');
+      try {
+        const url = await window.osirisAPI.getPlatformUrl();
+        if (url && document.activeElement !== urlInput) urlInput.value = url;
+      } catch (e) { /* the address stays as it is */ }
+
+      let state = null;
+      try {
+        state = await window.osirisAPI.getSession();
+      } catch (e) {
+        stateLabel.textContent = 'The platform could not be reached.';
+        return;
+      }
+
+      if (!state || !state.reachable) {
+        stateLabel.textContent = 'The platform could not be reached.';
+        signInRow.hidden = false;
+        signOutBtn.hidden = true;
+        return;
+      }
+
+      if (state.authenticated) {
+        stateLabel.textContent = `Signed in as ${state.user?.email || 'operator'}.`;
+        signInRow.hidden = true;
+        signOutBtn.hidden = false;
+      } else if (state.ephemeral) {
+        stateLabel.textContent = 'The platform runs single-tenant and needs no session.';
+        signInRow.hidden = true;
+        signOutBtn.hidden = true;
+      } else {
+        stateLabel.textContent = 'Not signed in. The platform will refuse to run a tool.';
+        signInRow.hidden = false;
+        signOutBtn.hidden = true;
+      }
+      if (error) error.hidden = true;
+    }
+    refreshPlatformState();
+
+    document.getElementById('signInBtn').addEventListener('click', async () => {
+      const error = document.getElementById('signInError');
+      const email = document.getElementById('signInEmail').value.trim();
+      const password = document.getElementById('signInPassword').value;
+      if (!email || !password) {
+        error.textContent = 'Enter an email and a password.';
+        error.hidden = false;
+        return;
+      }
+      const result = await window.osirisAPI.signIn(email, password);
+      if (!result?.ok) {
+        error.textContent = result?.error === 'INVALID_CREDENTIALS'
+          ? 'That email and password do not match an account.'
+          : (result?.detail || result?.error || 'The platform could not be reached.');
+        error.hidden = false;
+        return;
+      }
+      document.getElementById('signInPassword').value = '';
+      await refreshPlatformState();
+    });
+
+    document.getElementById('signOutBtn').addEventListener('click', async () => {
+      await window.osirisAPI.signOut();
+      await refreshPlatformState();
+    });
+
+    document.getElementById('platformUrl').addEventListener('change', async (e) => {
+      await window.osirisAPI.setPlatformUrl(e.target.value.trim());
+      await refreshPlatformState();
+    });
+
+    document.getElementById('checkUpdatesBtn').addEventListener('click', async () => {
+      const btn = document.getElementById('checkUpdatesBtn');
+      btn.textContent = 'Checking...';
+      btn.disabled = true;
+      try {
+        await window.osirisAPI.checkForUpdates();
+        btn.textContent = 'Check Now';
+        btn.disabled = false;
+      } catch (e) {
+        btn.textContent = 'Check Now';
+        btn.disabled = false;
+      }
+    });
+
+    document.getElementById('clearCacheBtn').addEventListener('click', () => {
+      if (confirm('Clear all cached data? This will log you out of any sessions.')) {
+        alert('Cache cleared (simulated).');
+      }
+    });
+
+    document.getElementById('resetSettingsBtn').addEventListener('click', () => {
+      if (confirm('Reset all settings to defaults? This cannot be undone.')) {
+        alert('Settings reset (simulated).');
+      }
+    });
+
+    document.getElementById('minimizeToTray').addEventListener('change', (e) => {
+      console.log('Minimize to tray:', e.target.checked);
+    });
+    document.getElementById('autoUpdates').addEventListener('change', (e) => {
+      console.log('Auto updates:', e.target.checked);
+    });
+    document.getElementById('startOnLogin').addEventListener('change', (e) => {
+      console.log('Start on login:', e.target.checked);
+    });
+    document.getElementById('darkMode').addEventListener('change', (e) => {
+      console.log('Dark mode:', e.target.checked);
+    });
+    document.getElementById('compactMode').addEventListener('change', (e) => {
+      console.log('Compact mode:', e.target.checked);
+    });
+  </script>
+</body>
+</html>

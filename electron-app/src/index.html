@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Osiris</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --primary: #58a6ff;
+    --text: #c9d1d9;
+    --text-secondary: #8b949e;
+    --border: #30363d;
+    --success: #3fb950;
+    --warning: #d29922;
+    --danger: #f85149;
+    --purple: #a371f7;
+    --orange: #d18616;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Segoe UI", "Inter", system-ui, sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; }
+  .app { display: grid; grid-template-columns: 260px 1fr; height: 100vh; }
+  aside { background: var(--surface); border-right: 1px solid var(--border); padding: 24px; display: flex; flex-direction: column; }
+  aside h2 { font-size: 14px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 20px; }
+  nav a { display: block; padding: 10px 12px; border-radius: 8px; text-decoration: none; color: var(--text); margin-bottom: 4px; transition: background .2s; cursor: pointer; }
+  nav a.active, nav a:hover { background: rgba(88,166,255,0.1); color: var(--primary); }
+  .nav-divider { height: 1px; background: var(--border); margin: 16px 0; }
+  .nav-section { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-secondary); margin-bottom: 8px; }
+  main { padding: 32px; overflow-y: auto; }
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; flex-wrap: wrap; gap: 16px; }
+  header h1 { font-size: 32px; font-weight: 700; letter-spacing: -0.5px; }
+  .badge { display: inline-block; padding: 4px 10px; border-radius: 9999px; background: rgba(88,166,255,0.1); color: var(--primary); font-size: 12px; font-weight: 600; border: 1px solid rgba(88,166,255,0.2); }
+  .version-display { font-size: 13px; color: var(--text-secondary); font-family: 'Monospace', monospace; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 24px; transition: transform .15s, border-color .2s; cursor: pointer; }
+  .card:hover { border-color: var(--primary); transform: translateY(-2px); }
+  .card h3 { font-size: 16px; margin-bottom: 8px; }
+  .card p { color: var(--text-secondary); font-size: 14px; line-height: 1.5; }
+  .card .card-tag { display: inline-block; margin-top: 12px; padding: 2px 8px; border-radius: 4px; background: rgba(88,166,255,0.1); color: var(--primary); font-size: 11px; font-weight: 600; }
+  .status-bar { display: flex; gap: 24px; margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-secondary); flex-wrap: wrap; }
+  .status-item { display: flex; align-items: center; gap: 8px; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+  .status-dot.warning { background: var(--warning); }
+  .status-dot.error { background: var(--danger); }
+  .update-banner { display: none; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 24px; margin-bottom: 24px; }
+  .update-banner.visible { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+  .update-banner .info { display: flex; align-items: center; gap: 12px; }
+  .update-banner .spinner { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .btn { padding: 8px 16px; border-radius: 8px; border: none; font-size: 12px; font-weight: 600; cursor: pointer; transition: background .2s; }
+  .btn-primary { background: var(--primary); color: #0d1117; }
+  .btn-primary:hover { background: #79b8ff; }
+  .btn-secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+  .btn-secondary:hover { background: #21262d; }
+  .btn-purple { background: var(--purple); color: #0d1117; }
+  .btn-purple:hover { background: #b88cff; }
+  .system-info-panel { display: none; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-top: 24px; }
+  .system-info-panel.visible { display: block; }
+  .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+  .info-item { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .info-item label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); margin-bottom: 8px; display: block; }
+  .info-item span { font-family: 'Monospace', monospace; font-size: 13px; word-break: break-all; }
+  .shortcuts-hint { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-secondary); }
+  .shortcut { display: flex; align-items: center; gap: 4px; background: var(--bg); padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border); }
+  .shortcut kbd { font-family: 'Monospace', monospace; font-size: 10px; background: var(--surface); padding: 2px 6px; border-radius: 3px; border: 1px solid var(--border); }
+
+  /* Cyber Tools Styles */
+  .cyber-tools-panel { display: none; margin-top: 24px; }
+  .cyber-tools-panel.visible { display: block; }
+  .cyber-tools-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 16px; }
+  .cyber-tools-header h2 { font-size: 24px; font-weight: 700; }
+  .cyber-status { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .cyber-category-tabs { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; overflow-x: auto; padding-bottom: 8px; }
+  /* The sign-in strip. It appears only when the platform says it needs a
+     session — a platform with no database runs single-tenant, and a form
+     that cannot work is worse than no form. */
+  .cyber-signin { display: flex; flex-direction: column; gap: 12px; background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--primary); border-radius: 10px; padding: 16px 20px; margin-bottom: 20px; }
+  .cyber-signin[hidden] { display: none; }
+  .cyber-signin__text { display: flex; flex-direction: column; gap: 4px; }
+  .cyber-signin__text strong { font-size: 13px; font-weight: 600; }
+  .cyber-signin__text span { font-size: 12px; color: var(--text-secondary); }
+  .cyber-signin__fields { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .cyber-signin__fields input { flex: 1 1 200px; min-width: 160px; padding: 9px 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); color: var(--text); font-size: 13px; }
+  .cyber-signin__fields input:focus { outline: none; border-color: var(--primary); }
+  .cyber-signin__fields input[hidden] { display: none; }
+  .cyber-signin__error { font-size: 12px; color: var(--danger); }
+  .cyber-signin__error[hidden] { display: none; }
+  .cyber-tab { padding: 8px 16px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); font-size: 12px; font-weight: 600; cursor: pointer; transition: all .2s; white-space: nowrap; }
+  .cyber-tab.active { background: var(--purple); color: #0d1117; border-color: var(--purple); }
+  .cyber-tab:hover:not(.active) { border-color: var(--primary); }
+  .cyber-tools-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+  .cyber-tool-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; transition: all .2s; }
+  .cyber-tool-card:hover { border-color: var(--purple); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(163,113,247,0.15); }
+  .cyber-tool-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; }
+  .cyber-tool-icon { width: 40px; height: 40px; border-radius: 10px; background: linear-gradient(135deg, var(--purple), #8b5cf6); display: flex; align-items: center; justify-content: center; font-size: 18px; }
+  .cyber-tool-info h4 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+  .cyber-tool-info p { font-size: 11px; color: var(--text-secondary); }
+  .cyber-tool-state { font-family: var(--font-hud); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; margin-top: 8px; }
+  .cyber-tool-actions { display: flex; gap: 8px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+  .cyber-tool-btn { flex: 1; padding: 8px 12px; border-radius: 6px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; transition: all .2s; }
+  .cyber-tool-btn-primary { background: var(--purple); color: #0d1117; }
+  .cyber-tool-btn-primary:hover { background: #b88cff; }
+  .cyber-tool-btn-secondary { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+  .cyber-tool-btn-secondary:hover { background: var(--surface); }
+  .cyber-tool-output { display: none; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-top: 16px; font-family: 'Monospace', monospace; font-size: 11px; max-height: 300px; overflow: auto; }
+  .cyber-tool-output.visible { display: block; }
+  .cyber-tool-output-header { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 10px; color: var(--text-secondary); text-transform: uppercase; }
+  .cyber-modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: none; align-items: center; justify-content: center; z-index: 1000; }
+  .cyber-modal.visible { display: flex; }
+  .cyber-modal-content { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 32px; max-width: 600px; width: 90%; max-height: 80vh; overflow: auto; }
+  .cyber-modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+  .cyber-modal-title { font-size: 18px; font-weight: 700; }
+  .cyber-modal-close { background: none; border: none; color: var(--text-secondary); font-size: 24px; cursor: pointer; }
+  .cyber-form-group { margin-bottom: 16px; }
+  .cyber-form-label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 8px; color: var(--text); }
+  .cyber-form-input { width: 100%; padding: 10px 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); color: var(--text); font-family: 'Monospace', monospace; font-size: 12px; }
+  .cyber-form-input:focus { outline: none; border-color: var(--purple); }
+  .cyber-form-textarea { min-height: 120px; resize: vertical; }
+  .cyber-form-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px; }
+  .api-status-indicator { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 9999px; font-size: 11px; font-weight: 600; }
+  .api-status-indicator.online { background: rgba(63,185,80,0.1); color: var(--success); border: 1px solid rgba(63,185,80,0.2); }
+  .api-status-indicator.offline { background: rgba(248,81,73,0.1); color: var(--danger); border: 1px solid rgba(248,81,73,0.2); }
+</style>
+</head>
+<body>
+  <div class="app">
+    <aside>
+      <h2>Osiris</h2>
+      <nav id="mainNav">
+        <a href="#" data-view="dashboard" class="active">Dashboard</a>
+        <a href="#" data-view="cyber">Cyber Tools</a>
+        <a href="#" data-view="intel">Intel</a>
+        <a href="#" data-view="engine">Engine</a>
+        <a href="#" data-view="deploy">Deploy</a>
+      </nav>
+      <div class="nav-divider"></div>
+      <div class="nav-section">Tools</div>
+      <nav id="toolsNav">
+        <a href="#" data-action="webapp">Open Web App</a>
+        <a href="#" data-action="github">GitHub</a>
+        <a href="#" data-action="settings">Settings</a>
+        <a href="#" data-action="updates">Check Updates</a>
+        <a href="#" data-action="sysinfo">System Info</a>
+      </nav>
+    </aside>
+    <main>
+      <header>
+        <h1>Dashboard <span class="badge">Native Electron</span></h1>
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <span class="version-display" id="versionDisplay">v1.0.2</span>
+        </div>
+      </header>
+
+      <div class="update-banner" id="updateBanner">
+        <div class="info">
+          <span class="spinner" id="updateSpinner" style="display:none;"></span>
+          <span id="updateMessage">Checking for updates...</span>
+        </div>
+        <button class="btn btn-secondary" id="dismissUpdate" style="display:none;">Dismiss</button>
+      </div>
+
+      <section class="cards">
+        <article class="card" data-action="webapp">
+          <h3>Open Web App</h3>
+          <p>Launch the Osiris web application in your default browser for full cloud features.</p>
+          <span class="card-tag">External Link</span>
+        </article>
+        <article class="card" data-action="github">
+          <h3>GitHub Repository</h3>
+          <p>View source code, report issues, and contribute to the Osiris project.</p>
+          <span class="card-tag">External Link</span>
+        </article>
+        <article class="card" data-action="settings">
+          <h3>Settings</h3>
+          <p>Configure app preferences, appearance, updates, and system integration.</p>
+          <span class="card-tag">Native Window</span>
+        </article>
+        <article class="card" data-action="updates">
+          <h3>Check for Updates</h3>
+          <p>Manually check for application updates and install the latest version.</p>
+          <span class="card-tag">Action</span>
+        </article>
+        <article class="card" data-action="sysinfo">
+          <h3>System Information</h3>
+          <p>View detailed system specs, runtime versions, and environment details.</p>
+          <span class="card-tag">Info Panel</span>
+        </article>
+        <article class="card" data-action="docs">
+          <h3>Documentation</h3>
+          <p>Read the official documentation, guides, and API reference.</p>
+          <span class="card-tag">External Link</span>
+        </article>
+      </section>
+
+      <!-- Cyber Tools Panel -->
+      <div class="cyber-tools-panel" id="cyberToolsPanel">
+        <div class="cyber-tools-header">
+          <h2>Cyber-Security Tools</h2>
+          <div class="cyber-status">
+            <div class="api-status-indicator offline" id="apiStatus">
+              <span class="status-dot" id="apiStatusDot"></span>
+              <span id="apiStatusText">API Offline</span>
+            </div>
+            <button class="btn btn-purple" id="refreshCyberTools">Refresh Tools</button>
+          </div>
+        </div>
+        <div class="cyber-category-tabs" id="cyberCategoryTabs"></div>
+        <div class="cyber-signin" id="cyberSignIn" hidden>
+          <div class="cyber-signin__text">
+            <strong>This platform needs a session.</strong>
+            <span id="cyberSignInReason">Sign in to run a tool. The registry is readable without one; the dispatcher is not.</span>
+          </div>
+          <div class="cyber-signin__fields">
+            <input type="email" id="cyberEmail" placeholder="you@example.com" autocomplete="username" />
+            <input type="password" id="cyberPassword" placeholder="Password" autocomplete="current-password" />
+            <button class="btn btn-primary" id="cyberSignInBtn">Sign in</button>
+            <button class="btn btn-secondary" id="cyberSignOutBtn" hidden>Sign out</button>
+          </div>
+          <div class="cyber-signin__error" id="cyberSignInError" hidden></div>
+        </div>
+        <div class="cyber-tools-grid" id="cyberToolsGrid">
+          <div style="grid-column: 1 / -1; text-align: center; padding: 48px; color: var(--text-secondary);">
+            Select a category to load tools...
+          </div>
+        </div>
+      </div>
+
+      <div class="system-info-panel" id="systemInfoPanel">
+        <h3 style="margin-bottom: 20px;">System Information</h3>
+        <div class="info-grid" id="systemInfoGrid">
+          <div class="info-item"><label>Platform</label><span id="sysPlatform">-</span></div>
+          <div class="info-item"><label>Architecture</label><span id="sysArch">-</span></div>
+          <div class="info-item"><label>CPU Cores</label><span id="sysCpus">-</span></div>
+          <div class="info-item"><label>Total Memory</label><span id="sysMemory">-</span></div>
+          <div class="info-item"><label>System Uptime</label><span id="sysUptime">-</span></div>
+          <div class="info-item"><label>Electron</label><span id="sysElectron">-</span></div>
+          <div class="info-item"><label>Node.js</label><span id="sysNode">-</span></div>
+          <div class="info-item"><label>Chromium</label><span id="sysChrome">-</span></div>
+          <div class="info-item"><label>App Version</label><span id="sysAppVersion">-</span></div>
+        </div>
+      </div>
+
+      <div class="status-bar">
+        <div class="status-item"><span class="status-dot" id="statusDot"></span> <span id="statusText">Ready</span></div>
+        <div class="status-item">Platform: <span id="platformText">-</span></div>
+        <div class="status-item">Version: <span id="appVersionText">1.0.2</span></div>
+      </div>
+
+      <div class="shortcuts-hint">
+        <div class="shortcut"><kbd>F12</kbd> DevTools</div>
+        <div class="shortcut"><kbd>Ctrl+R</kbd> Reload</div>
+        <div class="shortcut"><kbd>F11</kbd> Fullscreen</div>
+        <div class="shortcut"><kbd>Ctrl+H</kbd> Hide to Tray</div>
+        <div class="shortcut"><kbd>Ctrl+Q</kbd> Quit</div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Cyber Tool Modal -->
+  <div class="cyber-modal" id="cyberModal">
+    <div class="cyber-modal-content">
+      <div class="cyber-modal-header">
+        <h3 class="cyber-modal-title" id="cyberModalTitle">Tool</h3>
+        <button class="cyber-modal-close" id="cyberModalClose">&times;</button>
+      </div>
+      <div id="cyberModalBody"></div>
+      <div class="cyber-form-actions">
+        <button class="btn btn-secondary" id="cyberModalCancel">Cancel</button>
+        <button class="btn btn-purple" id="cyberModalExecute">Execute</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const api = window.osirisAPI;
+    const version = api?.version || '1.0.2';
+    document.getElementById('versionDisplay').textContent = 'v' + version;
+    document.getElementById('appVersionText').textContent = version;
+
+    /* The platform's own integration dispatcher.
+       The desktop app does not keep its own copy of the tool registry:
+       it reads it from the platform, so a tool added on the web side
+       appears here without a second edit, and the capability allowlist
+       that is enforced is the same one. The base comes from the main
+       process, so a deployment can point at its own platform. */
+    let CYBER_API_BASE = 'http://localhost:3000/api/integrations';
+    let currentCategory = null;
+    let currentTool = null;
+    let cyberToolsData = { tools: [] };
+    let currentCapability = null;
+
+    /* The risk classes, which are how the tools are grouped. A tool that
+       transmits is not beside one that only listens, and the badge says
+       which is which. */
+    const RISK_TABS = [
+      { id: 'all', label: 'All', icon: '🔧' },
+      { id: 'passive-metadata', label: 'Passive', icon: '📡' },
+      { id: 'report-import', label: 'Import', icon: '📥' },
+      { id: 'active-transmit', label: 'Transmits', icon: '📡' },
+      { id: 'user-owned-media', label: 'Your media', icon: '🎥' },
+      { id: 'read-only-mcp', label: 'Read-only', icon: '🔗' },
+    ];
+
+    const STATE_TONE = {
+      'not-configured': 'var(--text-secondary)',
+      'ready': 'var(--success)',
+      'needs-authorization': 'var(--warning)',
+      'review-only': 'var(--text-muted)',
+      'disabled-by-policy': 'var(--danger)',
+    };
+
+    async function loadSystemInfo() {
+      try {
+        const info = await api?.getSystemInfo?.();
+        if (info) {
+          document.getElementById('sysPlatform').textContent = info.platform;
+          document.getElementById('sysArch').textContent = info.arch;
+          document.getElementById('sysCpus').textContent = info.cpus;
+          document.getElementById('sysMemory').textContent = info.memory;
+          document.getElementById('sysUptime').textContent = info.uptime;
+          document.getElementById('sysElectron').textContent = info.electron;
+          document.getElementById('sysNode').textContent = info.node;
+          document.getElementById('sysChrome').textContent = info.chrome;
+          document.getElementById('sysAppVersion').textContent = info.appVersion;
+          document.getElementById('platformText').textContent = `${info.platform} (${info.arch})`;
+        }
+      } catch (e) { console.error('Failed to load system info:', e); }
+    }
+    loadSystemInfo();
+
+    // Cyber Tools API Functions
+    async function resolvePlatformUrl() {
+      try {
+        const url = await api?.getPlatformUrl?.();
+        if (url) CYBER_API_BASE = `${url.replace(/\/$/, '')}/api/integrations`;
+      } catch (e) {
+        console.log('Platform URL could not be read; using the default.');
+      }
+    }
+
+    async function checkCyberAPI() {
+      try {
+        /* The registry is read through the main process, which holds the
+           session. The renderer never holds a token of its own. */
+        const result = await api?.getRegistry?.();
+        if (result?.ok) {
+          cyberToolsData = { tools: result.tools, total: result.total };
+          updateAPIStatus(true, result.total ?? 0);
+          await refreshSessionState();
+          return true;
+        }
+      } catch (e) {
+        console.log('Integration API not available:', e);
+      }
+      updateAPIStatus(false, 0);
+      await refreshSessionState();
+      return false;
+    }
+
+    /**
+     * Whether the platform needs this app to sign in.
+     *
+     * A platform with no database runs single-tenant and needs no session.
+     * One with accounts does, and until this app signs in the dispatcher
+     * will refuse every call. The platform says which case this is.
+     */
+    async function refreshSessionState() {
+      const panel = document.getElementById('cyberSignIn');
+      const signInBtn = document.getElementById('cyberSignInBtn');
+      const signOutBtn = document.getElementById('cyberSignOutBtn');
+      const error = document.getElementById('cyberSignInError');
+      if (!panel) return;
+
+      let state = null;
+      try {
+        state = await api?.getSession?.();
+      } catch (e) {
+        console.log('Session could not be read:', e);
+      }
+
+      if (!state || !state.reachable) {
+        panel.hidden = true;
+        return;
+      }
+
+      if (state.authenticated) {
+        panel.hidden = false;
+        document.getElementById('cyberSignInReason').textContent =
+          `Signed in as ${state.user?.email || 'operator'}.`;
+        signInBtn.hidden = true;
+        signOutBtn.hidden = false;
+        document.getElementById('cyberEmail').hidden = true;
+        document.getElementById('cyberPassword').hidden = true;
+        if (error) error.hidden = true;
+      } else if (state.ephemeral) {
+        /* No database: the platform runs single-tenant. There is nothing
+           to sign in to, and a form that cannot work is worse than none. */
+        panel.hidden = true;
+      } else {
+        panel.hidden = false;
+        signInBtn.hidden = false;
+        signOutBtn.hidden = true;
+        document.getElementById('cyberEmail').hidden = false;
+        document.getElementById('cyberPassword').hidden = false;
+        if (error) error.hidden = true;
+      }
+    }
+
+    /** Sign in from the Cyber Tools panel. */
+    async function signInToPlatform() {
+      const error = document.getElementById('cyberSignInError');
+      const email = document.getElementById('cyberEmail').value.trim();
+      const password = document.getElementById('cyberPassword').value;
+      if (!email || !password) {
+        if (error) {
+          error.textContent = 'Enter an email and a password.';
+          error.hidden = false;
+        }
+        return;
+      }
+      const result = await api?.signIn?.(email, password);
+      if (!result?.ok) {
+        if (error) {
+          error.textContent = result?.error === 'INVALID_CREDENTIALS'
+            ? 'That email and password do not match an account.'
+            : (result?.detail || result?.error || 'The platform could not be reached.');
+          error.hidden = false;
+        }
+        return;
+      }
+      document.getElementById('cyberPassword').value = '';
+      await checkCyberAPI();
+    }
+
+    async function signOutOfPlatform() {
+      await api?.signOut?.();
+      await checkCyberAPI();
+    }
+
+    function updateAPIStatus(online, toolCount) {
+      const indicator = document.getElementById('apiStatus');
+      const dot = document.getElementById('apiStatusDot');
+      const text = document.getElementById('apiStatusText');
+      if (online) {
+        indicator.className = 'api-status-indicator online';
+        dot.style.background = 'var(--success)';
+        text.textContent = `Platform online (${toolCount} tools)`;
+      } else {
+        indicator.className = 'api-status-indicator offline';
+        dot.style.background = 'var(--danger)';
+        text.textContent = 'Platform offline';
+      }
+    }
+
+    async function loadCyberCategories() {
+      const ok = await checkCyberAPI();
+      if (ok) renderCategoryTabs();
+    }
+
+    function renderCategoryTabs() {
+      const tabsContainer = document.getElementById('cyberCategoryTabs');
+      tabsContainer.innerHTML = '';
+
+      RISK_TABS.forEach(group => {
+        const count = group.id === 'all'
+          ? (cyberToolsData.tools || []).length
+          : (cyberToolsData.tools || []).filter(t => t.riskClass === group.id).length;
+        if (count === 0) return;
+        const tab = document.createElement('button');
+        tab.className = 'cyber-tab';
+        tab.dataset.category = group.id;
+        tab.innerHTML = `${group.icon} ${group.label} (${count})`;
+        tab.addEventListener('click', () => selectCategory(group.id));
+        tabsContainer.appendChild(tab);
+      });
+    }
+
+    async function selectCategory(category) {
+      currentCategory = category;
+      document.querySelectorAll('.cyber-tab').forEach(t => t.classList.remove('active'));
+      document.querySelector(`.cyber-tab[data-category="${category}"]`)?.classList.add('active');
+      renderToolsGrid(
+        (cyberToolsData.tools || []).filter(
+          t => category === 'all' || t.riskClass === category
+        )
+      );
+    }
+
+    function getToolIcon(riskClass) {
+      const group = RISK_TABS.find(t => t.id === riskClass);
+      return group ? group.icon : '🔧';
+    }
+
+    function renderToolsGrid(tools) {
+      const grid = document.getElementById('cyberToolsGrid');
+      if (!tools || tools.length === 0) {
+        grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 48px; color: var(--text-secondary);">No tools in this group</div>';
+        return;
+      }
+
+      grid.innerHTML = tools.map(tool => `
+        <div class="cyber-tool-card" data-tool="${tool.id}">
+          <div class="cyber-tool-header">
+            <div class="cyber-tool-icon">${getToolIcon(tool.riskClass)}</div>
+            <div class="cyber-tool-info">
+              <h4>${tool.name}</h4>
+              <p>${tool.purpose || 'No description available'}</p>
+            </div>
+          </div>
+          <div class="cyber-tool-state" style="color: ${STATE_TONE[tool.state] || 'var(--text-secondary)'}">
+            ${tool.state}${tool.riskClass === 'active-transmit' ? ' · transmits' : ''}
+          </div>
+          <div class="cyber-tool-actions">
+            <button class="cyber-tool-btn cyber-tool-btn-primary" onclick="openToolModal('${tool.id}')">Run</button>
+            <button class="cyber-tool-btn cyber-tool-btn-secondary" onclick="showToolDetails('${tool.id}')">Details</button>
+          </div>
+          <div class="cyber-tool-output" id="output-${tool.id}"></div>
+        </div>
+      `).join('');
+    }
+
+    async function openToolModal(toolId) {
+      const tool = (cyberToolsData.tools || []).find(t => t.id === toolId);
+      if (!tool) return;
+
+      currentTool = tool;
+      currentCapability = tool.capabilities?.[0] || null;
+
+      const modal = document.getElementById('cyberModal');
+      const title = document.getElementById('cyberModalTitle');
+      const body = document.getElementById('cyberModalBody');
+
+      title.textContent = `${getToolIcon(tool.riskClass)} ${tool.name}`;
+
+      // The capability picker, so the operator chooses which of the
+      // tool's allowlisted capabilities to run. The platform checks the
+      // choice again; this list is what may be offered, not a grant.
+      const capSelect = (tool.capabilities || []).length > 1
+        ? `<div class="cyber-form-group">
+             <label class="cyber-form-label">Capability</label>
+             <select class="cyber-form-input" id="capSelect">
+               ${tool.capabilities.map((c, i) => `<option value="${c}"${i === 0 ? ' selected' : ''}>${c}</option>`).join('')}
+             </select>
+           </div>`
+        : '';
+
+      const assetField = tool.requiresAsset
+        ? `<div class="cyber-form-group">
+             <label class="cyber-form-label">Asset id (required)</label>
+             <input class="cyber-form-input" id="assetId" placeholder="asset-1">
+           </div>`
+        : '';
+
+      const consentField = tool.requiresConsent
+        ? `<div class="cyber-form-group">
+             <label class="cyber-form-label" style="display:flex; gap:8px; align-items:flex-start;">
+               <input type="checkbox" id="consentAttestation" style="margin-top:2px;">
+               <span>I am authorised to run this, and the result is for the stated purpose.</span>
+             </label>
+           </div>`
+        : '';
+
+      const upstream = tool.upstream
+        ? `<div class="cyber-form-group">
+             <label class="cyber-form-label">Upstream</label>
+             <div class="cyber-form-input" style="color:var(--text-secondary);">${tool.upstream}</div>
+           </div>`
+        : '';
+
+      body.innerHTML = `
+        <div class="cyber-form-group">
+          <label class="cyber-form-label">Purpose (recorded in the audit trail)</label>
+          <input class="cyber-form-input" id="purpose" placeholder="Why are you running this?">
+        </div>
+        ${capSelect}
+        ${assetField}
+        ${consentField}
+        ${upstream}
+        <div class="cyber-form-group">
+          <label class="cyber-form-label">Parameters (JSON)</label>
+          <textarea class="cyber-form-input cyber-form-textarea" id="genericParams" placeholder='{"param1": "value1"}'></textarea>
+        </div>
+        <div class="cyber-form-group">
+          <label class="cyber-form-label">Scope of this tool</label>
+          <div class="cyber-form-input" style="color:var(--text-secondary);">${tool.riskNote || ''}</div>
+        </div>
+      `;
+
+      modal.classList.add('visible');
+    }
+
+    function closeToolModal() {
+      document.getElementById('cyberModal').classList.remove('visible');
+      currentTool = null;
+      currentCapability = null;
+    }
+
+    async function executeCurrentTool() {
+      if (!currentTool) return;
+
+      const toolId = currentTool.id;
+      const capSelect = document.getElementById('capSelect');
+      const capability = capSelect ? capSelect.value : currentCapability;
+      if (!capability) return;
+
+      let params = {};
+      const paramsEl = document.getElementById('genericParams');
+      if (paramsEl && paramsEl.value.trim()) {
+        try {
+          params = JSON.parse(paramsEl.value);
+        } catch (e) {
+          showToolOutput(toolId, 'Error', 'The parameters are not valid JSON.');
+          return;
+        }
+      }
+
+      const body = {
+        purpose: document.getElementById('purpose')?.value || 'operator request',
+        payload: params,
+      };
+      const assetEl = document.getElementById('assetId');
+      if (assetEl && assetEl.value.trim()) body.assetId = assetEl.value.trim();
+      const consentEl = document.getElementById('consentAttestation');
+      if (consentEl) body.consentAttestation = consentEl.checked;
+
+      showToolOutput(toolId, 'Working', 'Running...');
+
+      try {
+        /* The call goes through the main process, which presents the
+           session. The platform checks the capability against its own
+           allowlist again, so offering one here is a request, not a
+           grant. */
+        const response = await api?.execute?.(toolId, capability, body);
+
+        if (!response) {
+          showToolOutput(toolId, 'Error', 'The app could not reach the platform.');
+        } else if (response.status === 401) {
+          showToolOutput(
+            toolId,
+            'Refused',
+            'The platform refused this call: there is no session. Sign in above and try again.'
+          );
+          await refreshSessionState();
+        } else {
+          const result = response.result;
+          showToolOutput(
+            toolId,
+            result?.ok ? 'Success' : 'Refused',
+            JSON.stringify(result, null, 2)
+          );
+        }
+      } catch (e) {
+        showToolOutput(toolId, 'Error', e.message);
+      }
+
+      closeToolModal();
+    }
+
+    function showToolOutput(toolId, status, text) {
+      const outputEl = document.getElementById(`output-${toolId}`);
+      if (!outputEl) return;
+      outputEl.classList.add('visible');
+      outputEl.innerHTML = `
+        <div class="cyber-tool-output-header">
+          <span>${status}</span>
+          <span>${new Date().toLocaleTimeString()}</span>
+        </div>
+        <pre>${text}</pre>
+      `;
+    }
+
+    function showToolDetails(toolId) {
+      const tool = (cyberToolsData.tools || []).find(t => t.id === toolId);
+      if (!tool) return;
+
+      const lines = [
+        tool.name,
+        '',
+        tool.purpose,
+        '',
+        `State:        ${tool.state}`,
+        `Risk class:   ${tool.riskClass}`,
+        `Retention:    ${tool.retentionDays} days`,
+        `Asset:        ${tool.requiresAsset ? 'required' : 'not required'}`,
+        `Consent:      ${tool.requiresConsent ? 'required' : 'not required'}`,
+        '',
+        'Capabilities:',
+        ...(tool.capabilities || []).map(c => `  ${c}`),
+      ];
+      if (tool.upstream) lines.push('', `Upstream: ${tool.upstream}`);
+      if (tool.riskNote) lines.push('', tool.riskNote);
+
+      alert(lines.join('\n'));
+    }
+
+    // Event listeners for cyber tools
+    document.getElementById('refreshCyberTools').addEventListener('click', async () => {
+      await resolvePlatformUrl();
+      await loadCyberCategories();
+    });
+
+    document.getElementById('cyberSignInBtn').addEventListener('click', async () => {
+      await signInToPlatform();
+    });
+
+    document.getElementById('cyberSignOutBtn').addEventListener('click', async () => {
+      await signOutOfPlatform();
+    });
+
+    document.getElementById('cyberPassword').addEventListener('keydown', async (e) => {
+      if (e.key === 'Enter') await signInToPlatform();
+    });
+    
+    document.getElementById('cyberModalClose').addEventListener('click', closeToolModal);
+    document.getElementById('cyberModalCancel').addEventListener('click', closeToolModal);
+    document.getElementById('cyberModalExecute').addEventListener('click', executeCurrentTool);
+    
+    // Mobile action change handler
+    document.addEventListener('change', (e) => {
+      if (e.target.id === 'mobileAction') {
+        document.getElementById('mobileSerialGroup').style.display = 
+          e.target.value === 'info' ? 'block' : 'none';
+      }
+    });
+
+    // Navigation handlers
+    function showUpdateBanner(message, isLoading = false, showDismiss = false) {
+      const banner = document.getElementById('updateBanner');
+      const msg = document.getElementById('updateMessage');
+      const spinner = document.getElementById('updateSpinner');
+      const dismiss = document.getElementById('dismissUpdate');
+      msg.textContent = message;
+      spinner.style.display = isLoading ? 'inline-block' : 'none';
+      dismiss.style.display = showDismiss ? 'inline-block' : 'none';
+      banner.classList.add('visible');
+    }
+    function hideUpdateBanner() {
+      document.getElementById('updateBanner').classList.remove('visible');
+    }
+
+    async function checkUpdates() {
+      showUpdateBanner('Checking for updates...', true);
+      try { await api?.checkForUpdates?.(); } 
+      catch (e) { showUpdateBanner('Failed to check for updates', false, true); }
+    }
+
+    async function showSystemInfo() {
+      const panel = document.getElementById('systemInfoPanel');
+      const isVisible = panel.classList.toggle('visible');
+      if (isVisible) { await loadSystemInfo(); panel.scrollIntoView({ behavior: 'smooth' }); }
+    }
+
+    function handleNavAction(action) {
+      switch (action) {
+        case 'webapp': api?.openExternal?.('https://osiris.app'); break;
+        case 'github': api?.openExternal?.('https://github.com/osiris'); break;
+        case 'docs': api?.openExternal?.('https://docs.osiris.app'); break;
+        case 'settings': api?.showSettings?.(); break;
+        case 'updates': checkUpdates(); break;
+        case 'sysinfo': showSystemInfo(); break;
+      }
+    }
+
+    function handleViewChange(view) {
+      document.querySelectorAll('[data-view]').forEach(x => x.classList.remove('active'));
+      document.querySelector(`[data-view="${view}"]`)?.classList.add('active');
+      
+      // Show/hide panels based on view
+      document.getElementById('cyberToolsPanel').classList.toggle('visible', view === 'cyber');
+      
+      if (view === 'cyber') {
+        resolvePlatformUrl().then(loadCyberCategories);
+      }
+    }
+
+    document.querySelectorAll('[data-view]').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.preventDefault();
+        handleViewChange(el.dataset.view);
+      });
+    });
+
+    document.querySelectorAll('[data-action]').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.preventDefault();
+        handleNavAction(el.dataset.action);
+      });
+    });
+
+    document.getElementById('dismissUpdate').addEventListener('click', hideUpdateBanner);
+
+    if (window.ipcRenderer) {
+      window.ipcRenderer.on('update-status', (_, data) => {
+        if (data.status === 'checking') showUpdateBanner(data.message, true);
+        else if (data.status === 'no-update') showUpdateBanner(data.message, false, true);
+        else if (data.status === 'available') showUpdateBanner(`Update available: ${data.version}`, false, true);
+        else if (data.status === 'error') showUpdateBanner(`Error: ${data.message}`, false, true);
+      });
+
+      window.ipcRenderer.on('system-info', (_, info) => {
+        document.getElementById('sysPlatform').textContent = info.platform;
+        document.getElementById('sysArch').textContent = info.arch;
+        document.getElementById('sysCpus').textContent = info.cpus;
+        document.getElementById('sysMemory').textContent = info.memory;
+        document.getElementById('sysUptime').textContent = info.uptime;
+        document.getElementById('sysElectron').textContent = info.electron;
+        document.getElementById('sysNode').textContent = info.node;
+        document.getElementById('sysChrome').textContent = info.chrome;
+        document.getElementById('sysAppVersion').textContent = info.appVersion;
+        document.getElementById('platformText').textContent = `${info.platform} (${info.arch})`;
+        document.getElementById('systemInfoPanel').classList.add('visible');
+      });
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.key === 'h') { e.preventDefault(); window.electronAPI?.minimize?.(); }
+      if (e.key === 'F12') { e.preventDefault(); }
+      if (e.key === 'Escape') closeToolModal();
+    });
+
+    console.log('Osiris Electron v' + version + ' loaded with Cyber Tools');
+  </script>
+</body>
+</html>

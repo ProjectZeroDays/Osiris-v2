@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The app talks to a platform on the local network, over plain HTTP,
+  during development. Cleartext is permitted for those addresses only;
+  everything else keeps the platform's default, which is to refuse it.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- The host machine, as seen from an emulator. -->
+        <domain includeSubdomains="false">10.0.2.2</domain>
+        <!-- The device itself, and the loopback alias. -->
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <!-- A platform running on the same network. -->
+        <domain includeSubdomains="true">local</domain>
+    </domain-config>
+</network-security-config>
