@@ -1,0 +1,593 @@
+name: OSIRIS CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  ANDROID_SDK_ROOT: C:\Android
+  GRADLE_VERSION: 8.5
+  NODE_VERSION: '20'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # ============================================================
+  # WEB - Next.js Build & Test
+  # ============================================================
+  web-build:
+    name: Web Build & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      # The sign-in flow is the platform's front door, and it only exists
+      # when there is a database. The auth tests are therefore run against
+      # a real PostgreSQL rather than a mock: a mock would prove nothing
+      # about whether a session is stored as a hash.
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: osiris_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+        working-directory: .
+
+      - name: Run Lint
+        run: npm run lint
+        working-directory: .
+
+      - name: Run Type Check
+        run: npm run typecheck
+        working-directory: .
+
+      - name: Apply Migrations
+        run: npx drizzle-kit migrate
+        working-directory: .
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/osiris_test
+
+      - name: Run Tests
+        run: npm test -- --run
+        working-directory: .
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/osiris_test
+          OSIRIS_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/osiris_test
+
+      - name: Build Next.js
+        run: npm run build
+        working-directory: .
+        env:
+          NEXT_TELEMETRY_DISABLED: 1
+
+      - name: Seed an account for the client test
+        run: |
+          # The desktop app's client is tested against a running platform
+          # with a real account, because a session is the thing being
+          # tested and a mock would not be one.
+          PGPASSWORD=postgres psql -h localhost -U postgres -d osiris_test <<'SQL'
+          INSERT INTO tenants (id, name) VALUES ('ci-tenant', 'CI')
+            ON CONFLICT (id) DO NOTHING;
+          INSERT INTO users (id, tenant_id, email, roles)
+            VALUES ('ci-user', 'ci-tenant', 'operator@osiris.local', '["analyst","admin"]'::jsonb)
+            ON CONFLICT (id) DO NOTHING;
+          SQL
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/osiris_test
+
+      - name: Give the account a password
+        run: npm run user:password -- operator@osiris.local "ci-test-password"
+        working-directory: .
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/osiris_test
+
+      - name: Start the platform
+        run: |
+          npx next start -p 3000 > /tmp/osiris-platform.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3000/api/auth/setup > /dev/null; then
+              echo "the platform is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "the platform did not come up"
+          cat /tmp/osiris-platform.log
+          exit 1
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/osiris_test
+          # The registry is closed behind a session here, so the client
+          # test below proves the session it holds reopens it. On an open
+          # registry the same assertions pass without proving anything
+          # about the session.
+          OSIRIS_REGISTRY_REQUIRE_AUTH: "1"
+
+      - name: The desktop app's session
+        run: node --test electron-app/test/platform.test.js
+        env:
+          OSIRIS_PLATFORM_URL: http://localhost:3000
+          OSIRIS_TEST_EMAIL: operator@osiris.local
+          OSIRIS_TEST_PASSWORD: ci-test-password
+
+      - name: The desktop app, against a closed registry
+        run: node --test electron-app/test/registry-gate.test.js
+        env:
+          # The same platform, which has its registry closed. This test
+          # proves the other direction too: that the registry is refused
+          # to a caller with no session, and that the client's session is
+          # what reopens it.
+          OSIRIS_GATED_PLATFORM_URL: http://localhost:3000
+          OSIRIS_TEST_EMAIL: operator@osiris.local
+          OSIRIS_TEST_PASSWORD: ci-test-password
+
+      - name: Stop the platform
+        if: always()
+        run: pkill -f "next start" || true
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-build
+          path: .next/
+          retention-days: 7
+
+  # ============================================================
+  # ANDROID - Gradle Build & Test
+  # ============================================================
+  android-build:
+    name: Android Build
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: 34
+          ndk-version: r26c
+          build-tools-version: '34.0.0'
+          cmdline-tools-version: 'latest'
+
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v3
+        with:
+          gradle-version: ${{ env.GRADLE_VERSION }}
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Configure local.properties
+        run: |
+          echo "sdk.dir=$env:ANDROID_SDK_ROOT" > android-app/local.properties
+        shell: pwsh
+
+      # gradle.properties is committed with the settings the build needs,
+      # so there is nothing to generate here. (This step used to write it
+      # with a bash heredoc under pwsh, which is not a valid script - the
+      # step could never have succeeded.)
+
+      - name: Build Debug APK
+        run: .\gradlew.bat assembleDebug
+        working-directory: android-app
+
+      - name: Test the client
+        run: .\gradlew.bat testDebugUnitTest
+        working-directory: android-app
+        # The client's own tests, on the JVM: the registry's shape, and
+        # the session on the wire. A deployment may close its registry
+        # behind a session, so the app has to present the session on the
+        # call that reads it, and this is the only place that is proved
+        # rather than assumed.
+
+      - name: Build Release APK
+        run: .\gradlew.bat assembleRelease
+        working-directory: android-app
+
+      - name: Sign Release APK
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        run: |
+          $keystorePath = "osiris-release.keystore"
+          [IO.File]::WriteAllBytes($keystorePath, [Convert]::FromBase64String("${{ secrets.ANDROID_KEYSTORE_BASE64 }}"))
+          & "$env:ANDROID_SDK_ROOT\build-tools\34.0.0\apksigner.bat" sign `
+            --ks $keystorePath `
+            --ks-pass pass:${{ secrets.ANDROID_KEYSTORE_PASSWORD }} `
+            --key-pass pass:${{ secrets.ANDROID_KEY_PASSWORD }} `
+            --ks-key-alias ${{ secrets.ANDROID_KEY_ALIAS }} `
+            app/build/outputs/apk/release/app-release-unsigned.apk
+        working-directory: android-app
+        shell: pwsh
+
+      - name: Verify APK
+        run: |
+          $apkPath = "app/build/outputs/apk/release/app-release-unsigned.apk"
+          & "$env:ANDROID_SDK_ROOT\build-tools\34.0.0\apksigner.bat" verify $apkPath
+          Write-Host "APK verified successfully"
+        working-directory: android-app
+        shell: pwsh
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: android-app/app/build/outputs/apk/release/app-release-unsigned.apk
+          retention-days: 30
+
+  # ============================================================
+  # ELECTRON - Build Windows Executables
+  # ============================================================
+  electron-build:
+    name: Electron Build (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: electron-app/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+        working-directory: electron-app
+
+      - name: Build Electron App
+        run: npm run dist
+        working-directory: electron-app
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Sign Executables
+        if: env.CSC_LINK != ''
+        run: |
+          # electron-builder handles signing automatically when CSC_LINK is set
+          # This step verifies the output
+          Write-Host "Electron build completed"
+        shell: pwsh
+
+      - name: Verify Outputs
+        run: |
+          $exePath = "dist\win-unpacked\Osiris.exe"
+          $installerPath = "dist\Osiris Setup 1.0.0.exe"
+          if (Test-Path $exePath) { Write-Host "Standalone exe: OK ($(($((Get-Item $exePath).Length)/1MB)) MB)" }
+          if (Test-Path $installerPath) { Write-Host "NSIS installer: OK ($(($((Get-Item $installerPath).Length)/1MB)) MB)" }
+        working-directory: electron-app
+        shell: pwsh
+
+      - name: Upload Electron Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-windows
+          path: |
+            electron-app/dist/win-unpacked/Osiris.exe
+            electron-app/dist/Osiris Setup*.exe
+          retention-days: 30
+
+  # ============================================================
+  # CYBER API - Python Flask Server Test
+  # ============================================================
+  cyber-api-test:
+    name: Cyber-Security API Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          pip install -r intel/requirements.txt
+        working-directory: .
+
+      - name: Start the tool-collection worker
+        run: |
+          # The worker needs a key before it answers anything but its
+          # health check, and it binds to loopback.
+          export OSIRIS_WORKER_KEY=$(openssl rand -hex 32)
+          export OSIRIS_WORKER_PORT=8080
+          nohup python intel/osiris_api.py &
+          sleep 5
+        working-directory: .
+
+      - name: Test Health Endpoint
+        run: |
+          curl -f http://localhost:8080/api/health | jq '.tools_available'
+          # Expect: 1275+
+        working-directory: .
+
+      - name: Test Tools Endpoint
+        run: |
+          curl -f -H "X-OSIRIS-Worker-Key: $OSIRIS_WORKER_KEY" \
+            http://localhost:8080/api/tools | jq '.total'
+          # Expect: 1275+
+        working-directory: .
+
+      - name: Test Crypto Endpoint
+        run: |
+          curl -f -X POST http://localhost:8080/api/crypto/encrypt \
+            -H "Content-Type: application/json" \
+            -d '{"data": "test"}' | jq '.success'
+          # Expect: true
+        working-directory: .
+
+      - name: Test Category Endpoint
+        run: |
+          curl -f -H "X-OSIRIS-Worker-Key: $OSIRIS_WORKER_KEY" \
+            http://localhost:8080/api/tools/recon | jq '.tools | length'
+          # Expect: 16
+        working-directory: .
+
+      - name: Test the worker's interior safety
+        run: |
+          # The safety module: option injection, unbounded output, and
+          # path traversal. These are the things that go wrong inside a
+          # subprocess call, and none of them is shell injection.
+          python intel/test_worker_safety.py
+        working-directory: .
+
+      - name: Test the worker's tool isolation
+        run: |
+          # A tool runs in a subprocess, through the bounded runner. A
+          # tool that crashes, exits, or prints without end must not take
+          # the worker down, and a result that is not representable as
+          # JSON must be summarised rather than lost.
+          python intel/test_tool_isolation.py
+        working-directory: .
+
+      - name: Test the worker's routes from the outside
+        run: |
+          # The real worker, driven over HTTP: a dash-leading value is
+          # refused, the catalogue needs the key, and the routes that
+          # take no argument still answer.
+          export OSIRIS_TEST_PORT=8080
+          python intel/test_worker_routes.py
+        working-directory: .
+
+      - name: Test the tool-collection worker's boundary
+        run: |
+          # The worker answers nothing but its health check without the
+          # shared secret, and refuses a wrong one. This is the boundary
+          # between the platform and the process that runs the tools.
+          npx vitest run src/lib/integrations/__tests__/worker-boundary.test.ts
+        working-directory: .
+
+  # ============================================================
+  # RELEASE - Create Release Package
+  # ============================================================
+  release-package:
+    name: Create Release Package
+    runs-on: windows-latest
+    needs: [android-build, electron-build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Android APK
+        uses: actions/download-artifact@v4
+        with:
+          name: android-apk
+          path: releases/
+
+      - name: Download Electron Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: electron-windows
+          path: releases/
+
+      - name: Rename Artifacts
+        run: |
+          # Rename to standard names
+          Rename-Item "releases\app-release-unsigned.apk" "releases\osiris-app-release.apk" -Force
+          Rename-Item "releases\Osiris.exe" "releases\electron.exe" -Force
+          $installer = Get-ChildItem "releases\Osiris Setup*.exe" | Select-Object -First 1
+          if ($installer) { Rename-Item $installer.FullName "releases\osiris-electron-${{ github.ref_name }}-x64.nsis.exe" -Force }
+        shell: pwsh
+
+      - name: Create Release Notes
+        run: |
+          $version = "${{ github.ref_name }}"
+          $notes = @"
+          # Osiris $version
+
+          ## Release Artifacts
+          - **electron.exe** - Windows standalone executable
+          - **osiris-app-release.apk** - Signed Android APK
+          - **osiris-electron-$version-x64.nsis.exe** - NSIS Installer
+
+          ## Changes
+          - See commit history for details
+
+          ## Verification
+          All artifacts built and tested via CI/CD pipeline.
+          "@
+          Set-Content -Path "releases\RELEASE-NOTES.md" -Value $notes
+        shell: pwsh
+
+      - name: Create Release Package
+        run: |
+          Compress-Archive -Path "releases\electron.exe", "releases\osiris-app-release.apk", "releases\osiris-electron-${{ github.ref_name }}-x64.nsis.exe", "releases\RELEASE-NOTES.md" -DestinationPath "releases\osiris-release-${{ github.ref_name }}.zip" -Force
+          $sizeMB = [math]::Round(((Get-Item "releases\osiris-release-${{ github.ref_name }}.zip").Length / 1MB), 2)
+          Write-Host "Release package: $sizeMB MB"
+        shell: pwsh
+
+      - name: Upload Release Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-package
+          path: releases/osiris-release-${{ github.ref_name }}.zip
+          retention-days: 90
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Osiris ${{ github.ref_name }}
+          body_path: releases/RELEASE-NOTES.md
+          files: |
+            releases/osiris-release-${{ github.ref_name }}.zip
+            releases/osiris-app-release.apk
+            releases/osiris-electron-${{ github.ref_name }}-x64.nsis.exe
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+
+  # ============================================================
+  # DOCKER - Build & Push Docker Image
+  # ============================================================
+  docker-build:
+    name: Docker Build & Push
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GH_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ============================================================
+  # SECURITY - Dependency & Secret Scanning
+  # ============================================================
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Trivy (Node.js)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-node.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Run Trivy (Python)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: 'intel'
+          format: 'sarif'
+          output: 'trivy-python.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy Results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-node.sarif'
+
+      - name: Upload Trivy Results (Python)
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-python.sarif'
+
+      - name: Secret Scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: main
+          head: HEAD
+
+  # ============================================================
+  # NOTIFY - Completion Notification
+  # ============================================================
+  notify:
+    name: Notify Completion
+    runs-on: ubuntu-latest
+    needs: [web-build, android-build, electron-build, cyber-api-test, security-scan]
+    if: always()
+    timeout-minutes: 5
+    steps:
+      - name: Check Status
+        run: |
+          echo "All jobs completed"
+          echo "Web: ${{ needs.web-build.result }}"
+          echo "Android: ${{ needs.android-build.result }}"
+          echo "Electron: ${{ needs.electron-build.result }}"
+          echo "Cyber API: ${{ needs.cyber-api-test.result }}"
+          echo "Security: ${{ needs.security-scan.result }}"
+
+      - name: Notify Failure
+        if: failure()
+        run: |
+          echo "::warning::Some CI jobs failed. Check workflow logs."
+          # Could integrate with Slack/Discord webhook here

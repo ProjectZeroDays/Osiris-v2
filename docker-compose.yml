@@ -21,12 +21,62 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - HOSTNAME=0.0.0.0
+      # The durable record for findings, audit, quotas and the asset
+      # registry. Empty by default: without it the platform runs
+      # single-tenant and keeps the record in memory. The `db` profile
+      # below fills it in.
+      - DATABASE_URL=${DATABASE_URL:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Readiness, not liveness. `/api/health` says the process is up;
+    # `/api/ready` says whether it can serve — the database is reachable
+    # and has its tables, there is an account to sign in as, and the
+    # tool-collection worker answers. A container that is up and useless
+    # is a container a restart policy should know about.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/ready').then(r=>{process.exitCode=r.ok?0:1}).catch(()=>{process.exitCode=1})"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # The first start compiles and migrates; a slow start is not a
+      # failure.
+      start_period: 60s
     restart: unless-stopped
     networks:
       - default
       - umami_default
+
+  # ── Postgres (opt-in: `docker compose --profile db up -d`) ──────────────
+  # The platform works without a database. With one, findings, audit
+  # entries, quota counters, the asset registry and consent records all
+  # survive a restart and are shared between replicas.
+  #
+  # A database also means the platform demands a session, and a platform
+  # with no accounts has none. Visit it after starting the `db` profile
+  # and the first-run screen creates the first tenant and administrator
+  # and signs it in. The route is closed behind the first account.
+  osiris-db:
+    image: postgres:16-alpine
+    container_name: osiris-db
+    profiles: ["db"]
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-osiris}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-osiris}
+      - POSTGRES_DB=${POSTGRES_DB:-osiris}
+    volumes:
+      - osiris-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-osiris} -d ${POSTGRES_DB:-osiris}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - default
 
   osiris-cache:
     image: nginx:alpine
@@ -42,19 +92,31 @@ services:
     networks:
       - default
 
+  # ── The tool-collection worker ───────────────────────────────────────────
+  # The wide Cyber-Security tool collection. It imports tool modules and
+  # runs some of them as subprocesses, so it is not a surface a client may
+  # reach: the platform's dispatcher is the only thing that talks to it,
+  # and it says so with a shared secret. The worker answers nothing but
+  # its health check without that secret.
+  #
+  # The port is not published. The platform reaches it over the compose
+  # network, which is the only place it should be reachable from.
   osiris-intel:
     build:
       context: ./intel
       dockerfile: Dockerfile
     container_name: osiris-intel
-    ports:
-      - "4000:4000"
+    environment:
+      - OSIRIS_WORKER_KEY=${OSIRIS_WORKER_KEY:-}
+      - OSIRIS_WORKER_HOST=0.0.0.0
+      - OSIRIS_WORKER_PORT=8080
     restart: unless-stopped
     networks:
       - default
 
 volumes:
   nginx-cache:
+  osiris-db-data:
 
 networks:
   umami_default:

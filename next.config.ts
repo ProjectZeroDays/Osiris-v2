@@ -39,6 +39,28 @@ const nextConfig: NextConfig = {
       { protocol: 'https', hostname: '**' },
     ],
   },
+  /* Three things the file tracer would otherwise copy into the standalone
+     output, none of which the server ever reads:
+
+       * the models directory is created and filled at runtime, by the
+         download manager, and its path is computed from the environment;
+       * the native app trees are build outputs, and the APK and the
+         Windows binaries inside them are large;
+       * the releases folder is the packaged artefacts themselves.
+
+     Tracing them cost over a gigabyte of the standalone build and
+     nothing in the server reads any of it. */
+  outputFileTracingExcludes: {
+    '*': [
+      './models/**',
+      './releases/**',
+      './android-app/**',
+      './electron-app/**',
+      './runs/**',
+      './scratch/**',
+      './.next/cache/**',
+    ],
+  },
   async headers() {
     return [
       /* The worker path carries the MapLibre version, so a given URL never
@@ -62,11 +84,52 @@ const nextConfig: NextConfig = {
       {
         source: '/(.*)',
         headers: [
-          { key: 'Content-Security-Policy', value: "default-src 'self' 'unsafe-inline' 'unsafe-eval' https: wss: data: blob:;" },
+          /* The policy is written per-directive rather than as one wide
+             `default-src`, because the wide form is what it was: every
+             scheme and every origin was permitted to supply a script, a
+             frame, or a connection. The app does reach many public APIs
+             from the browser, so `connect-src` stays broad — that is the
+             nature of an aggregator — but scripts, styles, objects and
+             base URIs are now restricted to the platform itself.
+
+             `frame-ancestors` and `object-src 'none'` mean a hostile page
+             cannot frame the dashboard and no plugin content can be
+             injected into it. */
+          {
+            key: 'Content-Security-Policy',
+            value: [
+              "default-src 'self'",
+              // Next injects inline bootstrap scripts, and the map's worker
+              // is built at runtime, so both are permitted here.
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+              "font-src 'self' https://fonts.gstatic.com data:",
+              "img-src 'self' data: blob: https:",
+              "media-src 'self' blob: data: https:",
+              // The read-only OSINT feeds and the live map tiles.
+              "connect-src 'self' https: wss:",
+              // MapLibre's worker is fetched from /vendor/maplibre/ and the
+              // basemap style from the platform's own origin.
+              "worker-src 'self' blob:",
+              // Live camera and news previews are framed from their sources,
+              // which are many and not all on one host.
+              "frame-src 'self' https: blob: data:",
+              "object-src 'none'",
+              "base-uri 'self'",
+              "form-action 'self'",
+              "frame-ancestors 'self'",
+            ].join('; '),
+          },
           { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
-          { key: 'X-XSS-Protection', value: '1; mode=block' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          // The dashboard asks for the location once; it does not need the
+          // camera, the microphone, or anything else the browser can hand it.
+          {
+            key: 'Permissions-Policy',
+            value: 'geolocation=(self), camera=(), microphone=(), payment=(), usb=(), interest-cohort=()',
+          },
         ],
       },
     ];

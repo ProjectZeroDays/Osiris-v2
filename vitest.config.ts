@@ -5,6 +5,10 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
+      // `server-only` throws outside a React Server Component graph. The
+      // integration modules import it as a guard, so the tests alias it to a
+      // no-op rather than each test file stubbing it.
+      'server-only': fileURLToPath(new URL('./src/test/server-only-stub.ts', import.meta.url)),
     },
   },
   test: {

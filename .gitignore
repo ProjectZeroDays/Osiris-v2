@@ -40,7 +40,7 @@ scanner/
 # Data files
 threatfox.json
 
-# Intermediate scrape of somebody else's index — regenerate it with
+# Intermediate scrape of somebody else's index - regenerate it with
 # scratch/scrape_public_webcams.js harvest rather than keeping a copy here.
 scratch/public-webcams-harvest.json
 
@@ -67,3 +67,38 @@ scanner_backend_backup.js
 # Local checkouts of third-party tools; not part of this app
 /scratch/astra/
 /scratch/mast3r/
+
+# Build outputs of the native clients
+node_modules/
+dist/
+*.apk
+*.aab
+*.exe
+!electron-app/public/**
+
+# Android client - Gradle state and machine-specific files. The wrapper
+# (gradlew, gradlew.bat, gradle/wrapper/) is committed; these are not.
+android-app/.gradle/
+android-app/build/
+android-app/app/build/
+android-app/local.properties
+*.hprof
+
+# Python bytecode from the worker and its tests
+__pycache__/
+*.py[cod]
+
+# ── Release artefacts ─────────────────────────────────────────────────────
+# The packaged releases are large binaries that belong on the release page,
+# not in the history: a 157 MB zip is 157 MB in every clone, forever. The
+# notes are committed — they are the record of what was in the package —
+# and the artefacts are uploaded to the GitHub Release instead.
+releases/*.zip
+releases/*.exe
+releases/*.apk
+!releases/RELEASE-NOTES.md
+
+# The generated camera catalogue, written by the scrape script. It is
+# regenerated from the directories rather than kept.
+off
+
