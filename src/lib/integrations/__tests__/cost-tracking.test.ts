@@ -43,7 +43,7 @@ describeDb("the cost of a call", () => {
     costs = await import("@/lib/integrations/costs.server");
     db = await import("@/db/client.server");
     schema = await import("@/db/schema");
-  });
+  }, 60_000);
 
   afterAll(async () => {
     const client = db?.getDb();

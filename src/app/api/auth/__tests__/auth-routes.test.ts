@@ -58,7 +58,7 @@ describeDb("the auth routes", () => {
     db = await import("@/db/client.server");
     schema = await import("@/db/schema");
     auth = await import("@/lib/auth/session.server");
-  });
+  }, 60_000);
 
   afterAll(async () => {
     if (!db) return;

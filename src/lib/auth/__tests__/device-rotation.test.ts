@@ -36,7 +36,7 @@ describeDb("device secrets", () => {
     device = await import("@/lib/auth/device.server");
     db = await import("@/db/client.server");
     schema = await import("@/db/schema");
-  });
+  }, 60_000);
 
   afterAll(async () => {
     const client = db?.getDb();

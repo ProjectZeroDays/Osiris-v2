@@ -35,7 +35,7 @@ describeDb("the readiness probe", () => {
     readiness = await import("@/lib/integrations/readiness.server");
     db = await import("@/db/client.server");
     schema = await import("@/db/schema");
-  });
+  }, 60_000);
 
   afterAll(async () => {
     const client = db?.getDb();

@@ -436,11 +436,23 @@ jobs:
 
       - name: Rename Artifacts
         run: |
-          # Rename to standard names
-          Rename-Item "releases\app-release-unsigned.apk" "releases\osiris-app-release.apk" -Force
-          Rename-Item "releases\Osiris.exe" "releases\electron.exe" -Force
+          # Rename to standard names.
+          #
+          # `Move-Item`, not `Rename-Item`: the new name is a path, and
+          # `Rename-Item` treats it as a leaf name and refuses it with
+          # "represents a path or device name".
+          #
+          # The Electron artifact is uploaded from two paths, so its root
+          # is the directory they share, and the standalone binary keeps
+          # the `win-unpacked` folder it was built in. Looking for it
+          # only at the top level would not find it.
+          Move-Item "releases\app-release-unsigned.apk" "releases\osiris-app-release.apk" -Force
+          $exe = Get-ChildItem "releases" -Recurse -Filter "Osiris.exe" | Select-Object -First 1
+          if (-not $exe) { throw "The standalone executable was not in the artifact." }
+          Move-Item $exe.FullName "releases\electron.exe" -Force
           $installer = Get-ChildItem "releases\Osiris Setup*.exe" | Select-Object -First 1
-          if ($installer) { Rename-Item $installer.FullName "releases\osiris-electron-${{ github.ref_name }}-x64.nsis.exe" -Force }
+          if (-not $installer) { throw "The NSIS installer was not in the artifact." }
+          Move-Item $installer.FullName "releases\osiris-electron-${{ github.ref_name }}-x64.nsis.exe" -Force
         shell: pwsh
 
       - name: Create Release Notes

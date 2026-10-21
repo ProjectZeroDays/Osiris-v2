@@ -16,5 +16,11 @@ export default defineConfig({
     include: ['src/**/*.test.ts'],
     // Live-network integration tests are opt-in via RUN_LIVE_TESTS=1
     testTimeout: 30000,
+    // A hook that loads a route and its dependency graph can take longer
+    // than a test may reasonably take, and the default ten seconds is not
+    // enough when a hundred and fifty files are transforming in parallel.
+    // The hook that timed out was not slow on its own: it was slow
+    // because the machine was busy, and it failed the whole file.
+    hookTimeout: 60000,
   },
 });

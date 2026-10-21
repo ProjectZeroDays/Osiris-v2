@@ -47,7 +47,7 @@ describeDb("the sensor push", () => {
     // DATABASE_URL when it is first loaded — so it has to be imported
     // after the variable is set, not at the top of the file.
     quota = await import("@/lib/integrations/quota.server");
-  });
+  }, 60_000);
 
   afterAll(async () => {
     const client = db?.getDb();
