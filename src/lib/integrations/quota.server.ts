@@ -19,6 +19,7 @@ interface MemoryCounter {
   count: number;
   costUnits: number;
   costUnit: string;
+  reportedCalls: number;
 }
 
 const memory = new Map<string, MemoryCounter>();
@@ -53,11 +54,12 @@ export async function consumeQuota(
   tenantId: string,
   tool: string,
   limit = DEFAULT_DAILY_QUOTA,
-  cost?: { units: number; unit: string },
+  cost?: { units: number; unit: string; reported?: boolean },
 ): Promise<QuotaDecision> {
   const day = dayKey();
   const db = getDb();
   const units = cost?.units ?? 0;
+  const reported = cost?.reported ?? false;
   const unit = cost?.unit ?? "free";
 
   if (!db) {
@@ -66,7 +68,8 @@ export async function consumeQuota(
     if (used >= limit) {
       return { allowed: false, used, limit, remaining: 0, reason: "QUOTA_EXCEEDED" };
     }
-    memory.set(key, { count: used + 1, costUnits: (memory.get(key)?.costUnits ?? 0) + units, costUnit: unit });
+    const prev = memory.get(key);
+    memory.set(key, { count: used + 1, costUnits: (prev?.costUnits ?? 0) + units, costUnit: unit, reportedCalls: (prev?.reportedCalls ?? 0) + (reported ? 1 : 0) });
     return { allowed: true, used: used + 1, limit, remaining: limit - used - 1 };
   }
 
@@ -96,6 +99,7 @@ export async function consumeQuota(
         // The unit is written every time, so a row cannot end up with a
         // count in one unit and a total in another.
         costUnit: unit,
+        reportedCalls: (row[0].reportedCalls ?? 0) + (reported ? 1 : 0),
       })
       .where(
         and(
@@ -112,6 +116,7 @@ export async function consumeQuota(
       count: 1,
       costUnits: units,
       costUnit: unit,
+      reportedCalls: reported ? 1 : 0,
     });
   }
 
@@ -258,6 +263,8 @@ export interface CostLine {
   calls: number;
   /** What they cost, in `unit`. */
   units: number;
+  /** How many of the day's calls reported their own usage. */
+  reportedCalls: number;
   /** The unit `units` is in. */
   unit: string;
 }
@@ -282,7 +289,13 @@ export async function readCosts(
       if (parts.length !== 3) continue;
       if (parts[0] !== tenantId) continue;
       if (parts[2] !== dayKey2) continue;
-      out.push({ tool: parts[1], calls: m.count, units: m.costUnits, unit: m.costUnit });
+      out.push({
+        tool: parts[1],
+        calls: m.count,
+        units: m.costUnits,
+        reportedCalls: m.reportedCalls ?? 0,
+        unit: m.costUnit,
+      });
     }
     return out.sort((a, b) => a.tool.localeCompare(b.tool));
   }
@@ -292,6 +305,7 @@ export async function readCosts(
       tool: quotaCounters.tool,
       calls: quotaCounters.count,
       units: quotaCounters.costUnits,
+      reportedCalls: quotaCounters.reportedCalls,
       unit: quotaCounters.costUnit,
     })
     .from(quotaCounters)
@@ -307,6 +321,7 @@ export async function readCosts(
     tool: r.tool,
     calls: r.calls,
     units: r.units ?? 0,
+    reportedCalls: r.reportedCalls ?? 0,
     unit: r.unit ?? "free",
   }));
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "quota_counters" ADD COLUMN "reported_calls" integer DEFAULT 0 NOT NULL;

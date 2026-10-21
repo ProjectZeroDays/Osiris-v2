@@ -29,6 +29,13 @@
       "when": 1792550266817,
       "tag": "0003_familiar_tempest",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792561415141,
+      "tag": "0004_lovely_spirit",
+      "breakpoints": true
     }
   ]
 }

@@ -170,7 +170,7 @@ describe("the chat proxy", () => {
     // would prove nothing about the counting.
     expect(quota).toHaveLength(1);
     expect(quota[0].tool).toBe("ai-settings");
-    expect(quota[0].cost).toEqual({ units: 17, unit: "ai-token" });
+    expect(quota[0].cost).toEqual({ units: 17, reported: true, unit: "ai-token" });
   });
 
   it("counts a reply that is not streamed", async () => {
@@ -185,7 +185,7 @@ describe("the chat proxy", () => {
     const body = (await res.json()) as { choices: unknown[] };
 
     expect(body.choices).toHaveLength(1);
-    expect(quota[0].cost).toEqual({ units: 24, unit: "ai-token" });
+    expect(quota[0].cost).toEqual({ units: 24, reported: true, unit: "ai-token" });
   });
 
   it("records a local model's call as zero tokens, not as a request", async () => {
@@ -205,7 +205,7 @@ describe("the chat proxy", () => {
     await POST(request({ provider: "ollama", model: "qwen3:8b", messages: [{ role: "user", content: "hi" }] }));
 
     expect(quota).toHaveLength(1);
-    expect(quota[0].cost).toEqual({ units: 0, unit: "ai-token" });
+    expect(quota[0].cost).toEqual({ units: 0, reported: false, unit: "ai-token" });
   });
 
   it("refuses a model id that is not well-formed", async () => {

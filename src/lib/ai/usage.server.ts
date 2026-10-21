@@ -228,6 +228,7 @@ export async function recordChatCost(
   try {
     await consumeQuota(tenantId, "ai-settings", RECORDED_CALLS_CEILING, {
       units: usage.tokens ?? 0,
+      reported: usage.reported,
       unit: "ai-token",
     });
   } catch {

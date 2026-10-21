@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import {
   consumeQuota,
   readCosts,
@@ -13,13 +13,20 @@ import {
  * then dropped: the costs route answered with an empty list that read as
  * "nothing was spent". Both halves are kept now, and `readCosts` returns
  * them, so a bare deployment's spending is readable too.
+ *
+ * The memory path is only reached without a database, so these cases are
+ * skipped when one is configured — otherwise they would be measuring the
+ * database path under a name that says otherwise. The database path has
+ * its own tests, in `cost-tracking.test.ts`.
+ *
+ * The suite is run both ways in CI for exactly this reason: the run with
+ * a database covers the database path, and the run without one covers
+ * this.
  */
 
-beforeEach(() => {
-  // There is no reset export; consume into a fresh tenant per test.
-});
+const hasDatabase = Boolean(process.env.DATABASE_URL);
 
-describe("the in-memory cost ledger", () => {
+describe.skipIf(hasDatabase)("the in-memory cost ledger", () => {
   it("records a metered call's cost and reads it back", async () => {
     await consumeQuota("t-mem", "shodan", 100, { units: 3, unit: "shodan-query" });
 

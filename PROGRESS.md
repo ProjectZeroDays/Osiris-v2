@@ -415,29 +415,23 @@ last named gaps closed, and the work pushed.
   first-run UX and licensing each have an answer, and each is tested
 
 ## Next Highest-Value Items
-1. **A deployment with no database records no costs** - resolved
-   (2026-10-20): the in-memory quota path used to keep a call count
-   and drop the cost units entirely, and `readCosts` returned `[]` with
-   no database to read from, so a bare deployment's chat tokens were
-   counted on the wire and then discarded. The memory map now holds
-   `{ count, costUnits, costUnit }` and `readCosts` returns those rows
-   for the requested day, so a bare deployment's spending is readable
-   too. Six tests in `memory-costs.test.ts`. `pruneMemoryQuotas` split
-   its key on the empty string and matched nothing; it now splits on the
-   NUL separator and prunes the days it should
-2. **The Android client's encrypted storage is still untested** - the
-   session is proved on the wire and the registry's shape is proved
-   against a fixture, but the keystore path needs a device. The fallback
-   path is the one a device without a keystore takes, and it is the one
-   that is least tested. An instrumented test on an emulator would close
-   it.
-2. **The plan's v14 wiki is three pages, not a wiki** - the adding-a-tool
+1. **The plan's v14 wiki is three pages, not a wiki** - the adding-a-tool
    guide, the licences and the roadmap are written and held to the code.
    What a wiki adds over three pages is cross-links and a structure a
    reader can navigate, and the plan's "professional wiki" is a bigger
    thing than what is there.
-3. **The sensor push has no rate limit of its own** - the plan's risk list
-   names "rate limits" alongside device identity and rotation. The
-   dispatcher's quotas cover the tool calls, but a device that pushes a
-   million frames a minute is bounded only by what the upstream will
-   accept. A per-device push quota would be the answer.
+2. **The keystore fallback path is still untested** - the instrumented
+   test runs on a device that has a keystore, so it proves the encrypted
+   path. The fallback — what a device without a usable keystore does —
+   is the path the `catch (Throwable)` guards, and it is the one a test
+   cannot reach without disabling the keystore, which the emulator does
+   not allow. It is the least tested path and the one most likely to be
+   wrong.
+3. **A metered provider that drops the connection is indistinguishable
+   from a free local model in the cost ledger** - both arrive as zero
+   tokens in the `ai-token` unit, and the platform cannot tell them apart
+   from the wire. The costs route reports a zero that reads as "this
+   cost nothing", which is true for one and false for the other. The
+   distinction lives only in `reported: false`, which the ledger does
+   not carry. Either the row gains a column, or the costs route says
+   plainly that it cannot tell.

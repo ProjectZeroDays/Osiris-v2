@@ -214,4 +214,15 @@ export const quotaCounters = pgTable("quota_counters", {
   costUnits: doublePrecision("cost_units").notNull().default(0),
   /** The unit `costUnits` is in. `free` when the tool costs nothing. */
   costUnit: text("cost_unit").notNull().default("free"),
+  /**
+   * How many of the day's calls actually reported their usage.
+   *
+   * A metered provider that dropped the connection and a local model
+   * that is free both land as zero tokens in `cost_units`, and the
+   * number alone cannot say which. This column says how many of the
+   * day's calls reported, so a zero with a `reportedCalls` below
+   * `count` is a day that lost some replies rather than a day of free
+   * models.
+   */
+  reportedCalls: integer("reported_calls").notNull().default(0),
 }, (t) => ({ pk: uniqueIndex("quota_pk").on(t.tenantId, t.tool, t.day) }));

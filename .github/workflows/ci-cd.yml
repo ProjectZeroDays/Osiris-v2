@@ -76,6 +76,18 @@ jobs:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/osiris_test
           OSIRIS_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/osiris_test
 
+      - name: Run Tests without a database
+        run: npm test -- --run
+        working-directory: .
+        env:
+          # The other shape of a deployment: single-tenant, the record in
+          # memory, and no sign-in to demand. The database-backed tests
+          # skip themselves here, and the ones that cover the bare
+          # deployment's own behaviour run instead. Between the two runs,
+          # both shapes are covered.
+          DATABASE_URL: ''
+          OSIRIS_TEST_DATABASE_URL: ''
+
       - name: Build Next.js
         run: npm run build
         working-directory: .
