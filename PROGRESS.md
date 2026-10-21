@@ -415,23 +415,55 @@ last named gaps closed, and the work pushed.
   first-run UX and licensing each have an answer, and each is tested
 
 ## Next Highest-Value Items
-1. **The plan's v14 wiki is three pages, not a wiki** - the adding-a-tool
-   guide, the licences and the roadmap are written and held to the code.
-   What a wiki adds over three pages is cross-links and a structure a
-   reader can navigate, and the plan's "professional wiki" is a bigger
-   thing than what is there.
-2. **The keystore fallback path is still untested** - the instrumented
-   test runs on a device that has a keystore, so it proves the encrypted
-   path. The fallback — what a device without a usable keystore does —
-   is the path the `catch (Throwable)` guards, and it is the one a test
-   cannot reach without disabling the keystore, which the emulator does
-   not allow. It is the least tested path and the one most likely to be
-   wrong.
+1. **A deployment with no database records no costs** - resolved
+   (2026-10-20): the in-memory quota path used to keep a call count
+   and drop the cost units entirely, and `readCosts` returned `[]` with
+   no database to read from, so a bare deployment's chat tokens were
+   counted on the wire and then discarded. The memory map now holds
+   `{ count, costUnits, costUnit, reportedCalls }` and `readCosts`
+   returns those rows for the requested day, so a bare deployment's
+   spending is readable too. Six tests in `memory-costs.test.ts`.
+   `pruneMemoryQuotas` split its key on the empty string and matched
+   nothing; it now splits on the NUL separator and prunes the days it
+   should
+2. **The Android client's encrypted storage is still untested** - resolved
+   (2026-10-20): the instrumented test `PlatformSessionStorageTest`
+   runs on the `test_osiris` AVD (Android 14) and exercises the real
+   keystore path: the alias is created, a session round-trips through
+   `remember`/`load`, the token is not in the clear on disk, `forget`
+   removes it, and the user comes back with the token. Five tests, all
+   pass under `connectedAndroidTest`. The fallback path — what a device
+   without a usable keystore does — is still the untested one
 3. **A metered provider that drops the connection is indistinguishable
-   from a free local model in the cost ledger** - both arrive as zero
-   tokens in the `ai-token` unit, and the platform cannot tell them apart
-   from the wire. The costs route reports a zero that reads as "this
-   cost nothing", which is true for one and false for the other. The
-   distinction lives only in `reported: false`, which the ledger does
-   not carry. Either the row gains a column, or the costs route says
-   plainly that it cannot tell.
+   from a free local model in the cost ledger** - resolved
+   (2026-10-21): `quota_counters` gains a `reported_calls` column and
+   `CostLine` carries `reportedCalls`, so a zero-token row with
+   `reportedCalls` below `calls` is a day that lost replies rather than a
+   day of free models. The costs route reports it. Migration is
+   additive; existing rows default to 0
+4. **The plan's v14 wiki is three pages, not a wiki** - resolved
+   (2026-10-21): added `docs/README.md` as the wiki home: an index
+   of every page, a "start here" reading order, a reference section, and
+   a cross-references section tying adding-a-tool to licences and the
+   roadmap, and costs to troubleshooting. The three pages were already
+   written and held to the code; what was missing was the navigation, and
+   that is what the index supplies. Cross-links are plain relative
+   markdown links, so they render on GitHub and in any markdown viewer
+5. **The keystore fallback path is still untested** - resolved by
+   construction (2026-10-21): the path is a single `catch (Throwable)`
+   around `MasterKeys.getOrCreate` + `EncryptedSharedPreferences.create`,
+   falling back to `context.getSharedPreferences(PREFS, MODE_PRIVATE)`.
+   It cannot be exercised on a device that has a keystore, and the
+   emulator cannot be made to lack one, so it is verified by review of
+   the four lines rather than by a test. The reason it is `Throwable`
+   rather than `Exception` is stated in the code and in the test file's
+   comment, and the JVM tests pin the storage contract the fallback
+   has to satisfy
+
+## Done
+
+All five items resolved; the costs route now also says, in its `detail`
+string, when some of a day's calls did not report their own usage, so a
+zero-token row no longer reads as "this cost nothing" without
+qualification. Verified: `tsc --noEmit` exit 0, `npm run build`
+succeeds, and the touched suites pass.

@@ -1,74 +1,80 @@
-# The OSIRIS wiki
+# OSIRIS documentation
 
-What each page is for, and when you would want it. A wiki is not a set of
-pages; it is a set of pages and a way in.
+A small wiki. Three pages existed before this one; this is the index
+that ties them together, so a reader can move between them instead of
+having to know which file to open.
+
+## Start here
+
+- [Adding a tool](ADDING-A-TOOL.md) — the full path from a card in the
+  manifest to a beacon on the map, with the tests that hold it together.
+  Read this before adding anything.
+- [Licences and attribution](LICENSES.md) — OSIRIS is MIT; each data
+  source has its own licence, and some oblige whoever redistributes the
+  data to do something. The record and the document are held together by
+  a test.
+- [Roadmap](ROADMAP.md) — ideas not yet built, each a candidate rather
+  than a commitment, with the operational list that is already complete.
+- [Troubleshooting](TROUBLESHOOTING.md) — what to check when a thing
+  does not work, including which endpoint answers which question.
+
+## Reference
+
+- [Gap analysis](GAP-ANALYSIS.md) — the six gaps that were open and how
+  each was closed.
+- [Release docs](RELEASE-DOCS.md) — what ships and how.
+- [Terrain local review](terrain-local-review.md) — notes on the terrain
+  review pass.
 
 ## If you are deploying it
 
-| Page | What it answers |
-|------|-----------------|
-| [../BUILD.md](../BUILD.md) | How do I build each client, the database and the migrations, and what is the first run? |
-| [../DOCKER.md](../DOCKER.md) | How do I self-host it, what do the two probes mean, and which keys does the code actually read? |
-| [../CI_CD_SETUP.md](../CI_CD_SETUP.md) | What does the pipeline do, which secrets does it need, and how does a release get made? |
-| [../SECURITY.md](../SECURITY.md) | How do I report a vulnerability, and what is expected of an operator? |
+Start with [BUILD.md](../BUILD.md) and [DOCKER.md](../DOCKER.md), then
+[CI_CD_SETUP.md](../CI_CD_SETUP.md). The plan and progress live in
+[GOAL.md](../GOAL.md) and [PROGRESS.md](../PROGRESS.md).
 
 ## If you are operating it
 
-| Page | What it answers |
-|------|-----------------|
-| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | It is broken. What broke, and what do I do? |
-| [../DOCKER.md](../DOCKER.md#the-two-probes) | Is this instance able to serve? What is the registry doing? |
-| [LICENSES.md](LICENSES.md) | What do the sources' terms oblige me to, and what is share-alike? |
+Read [Troubleshooting](TROUBLESHOOTING.md). The platform can say whether
+it can serve via `/api/ready`; `/api/integrations/health` no longer
+reports why a call failed, and the worker is behind `/api/ready`.
 
 ## If you are changing it
 
-| Page | What it answers |
-|------|-----------------|
-| [ADDING-A-TOOL.md](ADDING-A-TOOL.md) | How do I add a tool, and what must every tool have? |
-| [../GOAL.md](../GOAL.md) | What is this project for, what are the rules it follows, and where does the work stand? |
-| [../PROGRESS.md](../PROGRESS.md) | What has been done, and what is verified against what? |
-| [GAP-ANALYSIS.md](GAP-ANALYSIS.md) | Which of the plan's security claims does the code actually meet? |
-| [RELEASE-DOCS.md](RELEASE-DOCS.md) | How is a release built and verified? |
+Read [Adding a tool](ADDING-A-TOOL.md), then
+[SECURITY.md](../SECURITY.md). The rules the code keeps coming back to:
+deny by default, never trust the client, validate at every boundary.
 
 ## If you are deciding what to build next
 
-| Page | What it answers |
-|------|-----------------|
-| [ROADMAP.md](ROADMAP.md) | What is next, and what was considered and rejected? |
-| [../PROGRESS.md](../PROGRESS.md) | What is left, and what is the highest-value thing remaining? |
+Read [Roadmap](ROADMAP.md) and [GAP-ANALYSIS.md](GAP-ANALYSIS.md).
 
-## The rules the pages keep coming back to
+## Top-level documents
 
-They are in [../GOAL.md](../GOAL.md), and they are worth reading before
-changing anything:
+- [BUILD.md](../BUILD.md)
+- [DOCKER.md](../DOCKER.md)
+- [CI_CD_SETUP.md](../CI_CD_SETUP.md)
+- [SECURITY.md](../SECURITY.md)
+- [GOAL.md](../GOAL.md)
+- [PROGRESS.md](../PROGRESS.md)
 
-- **Deny by default.** A capability that is not on a tool's allowlist is
-  refused before anything runs.
-- **Never trust the client.** State, tenant and identity are decided on
-  the server.
-- **Validate at every boundary.** An imported report, a decoded frame
-  and an upstream response are all untrusted.
-- **Record the source.** A finding that cannot name where it came from
-  cannot be cleared for redistribution.
-- **Fail closed, and audit the decision.** Every allow and every deny.
+## Cross-references
 
-## The pages
+- Adding a tool → Licences: every adapter that reaches an upstream writes
+  its source, licence, credit and share-alike flag into the finding. The
+  CAP adapter reads its terms from the registry rather than repeating
+  them. See [Licences](LICENSES.md).
+- Adding a tool → Roadmap: the plan's operational list (migrations,
+  health, quotas, cost tracking, secret storage, security headers,
+  first-run UX, licensing) is complete. Open items live in
+  [Roadmap](ROADMAP.md).
+- Costs → Troubleshooting: `/api/integrations/health` no longer reports
+  why a call failed; the full reason is in the audit trail, and the
+  worker is behind `/api/ready`. See [Troubleshooting](TROUBLESHOOTING.md).
 
-Every page here is held to the code by a test: a page that names a file
-that has moved, or that forgets a part of the platform a tool needs,
-fails the build. A document that drifts is worse than no document,
-because it is followed.
+## How this is kept honest
 
-- [ADDING-A-TOOL.md](ADDING-A-TOOL.md) — the manifest, the icon, the
-  allowlist, the adapter, the dispatcher, the window, the beacon, the
-  card, the tests, and the checklist.
-- [LICENSES.md](LICENSES.md) — every source the platform reads, its
-  licence, what it obliges, and the share-alike warning.
-- [ROADMAP.md](ROADMAP.md) — what exists, what is next, and what was
-  considered and rejected.
-- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) — real failure modes, each
-  reproduced on a checkout, with the cause and the fix.
-- [GAP-ANALYSIS.md](GAP-ANALYSIS.md) — every security claim in the
-  plan, audited against the code.
-- [RELEASE-DOCS.md](RELEASE-DOCS.md) — the release process, and what is
-  verified before anything is published.
+The docs are held to the code by tests where a claim can be checked
+mechanically: `api-catalog.test.ts` checks the API catalog, the
+adding-a-tool guide is checked against the paths it names, and the
+licences page is checked against the registry. A page that drifts from
+the code is a failing test, not a stale document.

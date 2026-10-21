@@ -62,13 +62,31 @@ export async function GET(req: Request) {
       tenantId: auth.tenantId,
       lines,
       priced,
+      // A zero-token row is ambiguous on its own: a free local model
+      // and a metered reply that ended before its usage frame both land
+      // as zero. `reportedCalls` is what disambiguates them, and it is
+      // carried on each line; this summary says so in one place.
+      summary: lines.map((l) => ({
+        tool: l.tool,
+        calls: l.calls,
+        units: l.units,
+        unit: l.unit,
+        reportedCalls: l.reportedCalls,
+        unreportedCalls: Math.max(0, l.calls - l.reportedCalls),
+      })),
       detail:
         lines.length === 0
           ? "Nothing has been spent today. Most of the platform's capabilities are free; the ones that are not are in `priced`."
-          : `Spent today, by unit: ${lines
-              .filter((l) => l.units > 0)
-              .map((l) => `${l.units} ${l.unit} (${l.tool})`)
-              .join(", ")}.`,
+          : `${lines
+              .filter((l) => l.units > 0 || l.calls > 0)
+              .map((l) => {
+                const reported =
+                  l.reportedCalls < l.calls
+                    ? ` (${l.reportedCalls} of ${l.calls} calls reported usage)`
+                    : "";
+                return `${l.units} ${l.unit} over ${l.calls} call${l.calls === 1 ? "" : "s"}${reported} (${l.tool})`;
+              })
+              .join("; ")}.`,
     },
     { headers: { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } },
   );
