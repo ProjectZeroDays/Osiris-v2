@@ -155,7 +155,13 @@ async function fetchAllLiveConflictData(): Promise<{ events: ConflictEvent[]; ev
   ];
 
   try {
+    // The two Node HTTP clients, required rather than imported: this
+    // route reaches the feeds over the raw clients so it can follow a
+    // redirect itself, and the module is only loaded when the route is
+    // actually called.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const https = require('https');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const http = require('http');
 
     const fetchRSS = (url: string): Promise<string> => {

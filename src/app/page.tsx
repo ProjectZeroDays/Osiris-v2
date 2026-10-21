@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Layers, BarChart3, Newspaper, Search, X, Globe, MapPinned, Route, Radar, Satellite, Moon, ExternalLink, AlertTriangle, Activity, Database, Wifi, Play, Network, Crosshair, Bluetooth, Pentagon, Radio , PenLine, Orbit } from 'lucide-react';
+import { Layers, BarChart3, Newspaper, Search, X, Globe, MapPinned, Route, Radar, Satellite, Moon, ExternalLink, AlertTriangle, Activity, Database, Wifi, Play, Network, Crosshair, Bluetooth, Pentagon, Radio , PenLine, Orbit, ShieldCheck } from 'lucide-react';
 import { type TerrainStatus } from '@/lib/map-terrain';
 import { loadCameraCatalog, mergeCameraCatalog } from '@/lib/camera-catalog';
 import IntelFeed from '@/components/IntelFeed';
@@ -25,6 +25,9 @@ import GlobalStatusBar from '@/components/GlobalStatusBar';
 import LiveAlerts from '@/components/LiveAlerts';
 import WorldRemote from '@/components/WorldRemote';
 import ArcGISPanel from '@/components/ArcGISPanel';
+import { AuthGate } from '@/components/AuthGate';
+import { SecurityToolsGridClient } from '@/components/security-tools/SecurityToolsGridClient';
+import { BeaconPopupCard } from '@/components/map/BeaconPopupCard';
 const OsirisMap = dynamic(() => import('@/components/OsirisMap'), { ssr: false });
 const LayerPanel = dynamic(() => import('@/components/LayerPanel'));
 const SpaceCam = dynamic(() => import('@/components/SpaceCam'), { ssr: false });
@@ -322,10 +325,17 @@ export default function Dashboard() {
   }, [navSession]);
   const [showRemote, setShowRemote] = useState(false);
   const [showArcGIS, setShowArcGIS] = useState(false);
+  /* The authorized security tools. Their state is decided on the server; the
+     panel only shows what it is told. */
+  const [showSecurity, setShowSecurity] = useState(false);
+  /* Detections from the security tools, as map beacons. */
+  const [securityFindings, setSecurityFindings] = useState<Array<{ kind: string; lat: number; lng: number; properties?: Record<string, unknown> }>>([]);
+  /* The beacon whose card is open, if any. */
+  const [selectedBeacon, setSelectedBeacon] = useState<{ kind: string; properties: Record<string, unknown> } | null>(null);
   const [arcgisLayers, setArcgisLayers] = useState<Array<{ id: string; title: string; url: string; geojson: any; color: string; visible: boolean; opacity: number }>>([]);
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number; bounds?: { west: number; south: number; east: number; north: number } } | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [mobilePanel, setMobilePanel] = useState<'layers'|'markets'|'intel'|'search'|'recon'|'remote'|'oi'|null>(null);
+  const [mobilePanel, setMobilePanel] = useState<'layers'|'markets'|'intel'|'search'|'recon'|'security'|'remote'|'oi'|null>(null);
 
   // ── OSIRIS OI ── the run lives here, not in the panel, so the globe keeps
   // drawing it while the panel is closed. State goes to the map's OI layer
@@ -773,6 +783,33 @@ export default function Dashboard() {
       .catch(console.error);
   }, []);
 
+  /* The security tools' detections, as map beacons. Polled rather than
+     pushed: a detection is a fact that was true when it was observed, and
+     the map only has to catch up with it. The endpoint answers 401 when
+     there is no session, which is the same as having no detections. */
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      fetch('/api/integrations/findings?limit=200', { cache: 'no-store' })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (cancelled || !d?.features) return;
+          setSecurityFindings(
+            d.features.map((f: any) => ({
+              kind: String(f.properties?.kind ?? 'security-finding'),
+              lat: Number(f.geometry?.coordinates?.[1]),
+              lng: Number(f.geometry?.coordinates?.[0]),
+              properties: f.properties ?? {},
+            })),
+          );
+        })
+        .catch(() => { /* the map keeps the beacons it already has */ });
+    };
+    load();
+    const iv = setInterval(load, 60000);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, []);
+
   /** From Search: open Directions with this place as the destination, and show where it is. */
   const openDirectionsTo = useCallback((p: { label: string; context?: string; lat: number; lng: number; kind?: string }) => {
     setRouteTarget({ ...p, ts: Date.now() });
@@ -860,6 +897,12 @@ export default function Dashboard() {
   // Entity click handler (hoisted from JSX to comply with Rules of Hooks - Fixes #113)
   const handleEntityClick = useCallback((entity: any) => {
     if (entity?.type === 'cctv') setActiveCamera(entity);
+    if (entity?.type === 'security-beacon') {
+      // A beacon click opens the card for its kind. The card is the same
+      // one everywhere, so the map hands the finding over rather than
+      // drawing a second, different kind of popup.
+      setSelectedBeacon({ kind: entity.kind, properties: entity.properties ?? {} });
+    }
     if (entity?.type === 'live_news' && entity.url) {
       setLiveFeedUrl(entity.url);
       setLiveFeedName(entity.name);
@@ -1340,6 +1383,7 @@ export default function Dashboard() {
 
 
   return (
+    <AuthGate>
     <main className="fixed inset-0 w-full h-full bg-[var(--bg-void)] overflow-hidden">
 
       {/* ── SPLASH ── */}
@@ -1555,6 +1599,7 @@ export default function Dashboard() {
           alertPinIds={pinnedAlertIds}
           sweepData={sweepData}
           scanTargets={scanTargets}
+          securityFindings={securityFindings}
           demoMode={demoMode}
           theme={osirisTheme}
           arcgisLayers={arcgisLayers.filter(l => l.visible).map(l => ({ id: l.id, title: l.title, geojson: l.geojson, color: l.color, opacity: l.opacity }))}
@@ -1805,6 +1850,26 @@ export default function Dashboard() {
                   });
                   setFlyToLocation({ lat: data.lat, lng: data.lng, ts: Date.now() });
                 }} />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        <div className="relative group">
+          <button onClick={() => { setShowSecurity(!showSecurity); setShowOi(false); setShowIntel(false); setShowAlerts(false); setShowMarkets(false); setShowSpaceCam(false); }} className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/50 ${showSecurity ? 'bg-[var(--alert-green)]/20' : 'hover:bg-white/10'}`} title="Authorized Security Tools — registry-driven integrations, allowlisted capabilities" aria-label="Authorized Security Tools" aria-expanded={showSecurity}>
+            <ShieldCheck className={`w-4 h-4 ${showSecurity ? 'text-[var(--alert-green)]' : 'text-white/60'}`} />
+            {showSecurity && (
+              <span
+                aria-hidden="true"
+                className="absolute -right-1 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-full bg-current text-[var(--alert-green)]"
+              />
+            )}
+          </button>
+          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[9px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity pointer-events-none">SECURITY</span>
+          <AnimatePresence>
+            {showSecurity && (
+              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="absolute right-12 top-1/2 -translate-y-1/2 w-[26rem] max-h-[70vh] overflow-y-auto rounded-xl bg-[var(--bg-panel)]/95 backdrop-blur-md border border-[var(--border-primary)] p-4">
+                <SecurityToolsGridClient />
               </motion.div>
             )}
           </AnimatePresence>
@@ -2108,6 +2173,7 @@ export default function Dashboard() {
                 { id: 'markets' as const, icon: BarChart3, label: 'MARKETS' },
                 { id: 'intel' as const, icon: Newspaper, label: 'INTEL' },
                 { id: 'recon' as const, icon: Radar, label: 'RECON' },
+                { id: 'security' as const, icon: ShieldCheck, label: 'SECURITY' },
                 { id: 'oi' as const, icon: Orbit, label: 'OI' },
                 { id: 'search' as const, icon: Search, label: 'SEARCH' },
                 // Routing was reachable only from the desktop tool rail, so a
@@ -2165,7 +2231,7 @@ export default function Dashboard() {
                 <div className="px-3 pb-3">
                   <div className="flex items-center justify-between mb-2">
                     <span className="hud-text text-[10px] text-[var(--text-primary)]">
-                      {mobilePanel === 'layers' ? 'LAYERS & STATS' : mobilePanel === 'markets' ? 'MARKETS & INTEL' : mobilePanel === 'intel' ? 'INTEL FEED' : mobilePanel === 'recon' ? 'OSIRIS RECON' : mobilePanel === 'remote' ? 'WORLD REMOTE' : mobilePanel === 'oi' ? 'OSIRIS OI' : 'SEARCH'}
+                      {mobilePanel === 'layers' ? 'LAYERS & STATS' : mobilePanel === 'markets' ? 'MARKETS & INTEL' : mobilePanel === 'intel' ? 'INTEL FEED' : mobilePanel === 'recon' ? 'OSIRIS RECON' : mobilePanel === 'security' ? 'AUTHORIZED SECURITY TOOLS' : mobilePanel === 'remote' ? 'WORLD REMOTE' : mobilePanel === 'oi' ? 'OSIRIS OI' : 'SEARCH'}
                     </span>
                     <button onClick={() => setMobilePanel(null)} className="text-[var(--text-muted)] p-1"><X className="w-4 h-4" /></button>
                   </div>
@@ -2194,6 +2260,7 @@ export default function Dashboard() {
                       stage={oiStage} onStage={setOiStage} />
                   )}
                   {mobilePanel === 'intel' && <IntelFeed data={data} onLocate={(lat, lng) => { setFlyToLocation({ lat, lng, ts: Date.now() }); setMobilePanel(null); }} />}
+                  {mobilePanel === 'security' && <SecurityToolsGridClient />}
                   {mobilePanel === 'search' && (
                     <div className="space-y-2">
                       <SearchBar embedded center={mapCenter} onDirections={openDirectionsTo} onLocate={(lat, lng, zoom) => { setFlyToLocation({ lat, lng, zoom, ts: Date.now() }); setMobilePanel(null); }} />
@@ -2287,6 +2354,19 @@ export default function Dashboard() {
         besideOi={showOi && !oiTheater}
       />
 
+      {/* ── Beacon card ──
+          One card for every kind of detection, drawn over the map where
+          the beacon was clicked. */}
+      {selectedBeacon && (
+        <div className="absolute left-1/2 bottom-[130px] -translate-x-1/2 z-[420] pointer-events-auto">
+          <BeaconPopupCard
+            kind={selectedBeacon.kind}
+            properties={selectedBeacon.properties}
+            onClose={() => setSelectedBeacon(null)}
+          />
+        </div>
+      )}
+
       {/* ── Entity Graph Panel ── */}
       {/* Guidance belongs over the map, where the clicking happens. */}
       {drawMode && (
@@ -2350,5 +2430,6 @@ export default function Dashboard() {
 
 
     </main>
+    </AuthGate>
   );
 }

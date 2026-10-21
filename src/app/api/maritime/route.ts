@@ -210,7 +210,10 @@ function connectAisStream() {
 connectAisStream();
 
 // --- SCM Integration: VesselAPI Hybrid Fallback (Satellite AIS) ---
-let lastVesselApiFetch = 0;
+// The timestamp of the last fallback fetch. It is never reassigned: the
+// fallback is not in use, and the value is kept so the shape of the
+// integration does not change when it is switched back on.
+const lastVesselApiFetch = 0;
 async function fetchVesselApiFallback() {
   // Mock data removed per user request. We only rely on real live stream data.
 }

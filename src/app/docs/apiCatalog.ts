@@ -6,7 +6,7 @@
  * ═══════════════════════════════════════════════════════════════
  */
 
-export type HttpMethod = 'GET' | 'POST' | 'DELETE';
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
 export interface ApiParam {
   name: string;
@@ -68,8 +68,28 @@ export const API_GROUPS: ApiGroup[] = [
         path: '/api/health',
         method: 'GET',
         summary: 'Liveness probe. Never touches an upstream feed, so it stays fast under load.',
-        returns: ['status', 'platform', 'version', 'uptime', 'timestamp', 'endpoints'],
-        notes: '`status` is the literal string `operational`. `uptime` is process uptime in seconds.',
+        returns: [
+          'status',
+          'scope',
+          'checks_performed',
+          'detail',
+          'platform',
+          'version',
+          'uptime_seconds',
+          'surface',
+          'nominatim',
+          'timestamp',
+        ],
+        notes:
+          '`status` is the literal string `serving`, and `scope` is `process`: the endpoint reports that the process is up and that it checked nothing else, so a monitor cannot read it as "the data is flowing". `surface` says what a client will meet — whether the tool registry is open or closed behind a session, and whether the platform has accounts to sign in as at all.',
+      },
+      {
+        path: '/api/ready',
+        method: 'GET',
+        summary: 'Readiness probe. Says whether this instance can take traffic, and why not.',
+        returns: ['ok', 'ready', 'service', 'scope', 'checks', 'blockers', 'detail', 'at'],
+        notes:
+          'The other half of `/api/health`, and the reason they are separate: liveness says the process is up, readiness says whether it can serve. A database that is unreachable, migrations that were never applied, or a platform with no account anybody can sign in as is up and useless - a load balancer that only knows liveness sends it traffic anyway, and the error then arrives in front of a user rather than an operator. Answers without a session, because a probe cannot sign in. 503 while not ready: a load balancer reads the status code, and a body it has to parse is a body it might not read.',
       },
       {
         path: '/api/stats',
@@ -101,6 +121,32 @@ export const API_GROUPS: ApiGroup[] = [
         summary: 'Tracked orbital objects with TLE-derived positions.',
         returns: ['satellites', 'total', 'category_counts', 'raw_count', 'timestamp'],
         notes: 'Sourced from celestrak.org. `category_counts` breaks the set down by mission type.',
+      },
+      {
+        path: '/api/satellites/orbit',
+        method: 'GET',
+        summary: "One satellite's full orbit track, sampled from the same TLE as its map position.",
+        params: [{ name: 'id', required: true, desc: 'Norad catalog id of the satellite.' }],
+        returns: ['track', 'total', 'timestamp'],
+        notes:
+          'Served on demand rather than bundled into /api/satellites, so the track passes through the satellite rather than near it.',
+      },
+      {
+        path: '/api/aircraft',
+        method: 'GET',
+        summary: 'Aircraft identity and the track it actually flew, not a straight line between two airports.',
+        params: [{ name: 'icao24', required: true, desc: 'ICAO 24-bit address of the aircraft.' }],
+        returns: ['aircraft', 'track', 'source', 'timestamp'],
+        notes:
+          'The live feed only carries what the transponder broadcasts, so `model` arrives as "Unknown" or a bare ICAO type code for most airliners.',
+      },
+      {
+        path: '/api/flight-route',
+        method: 'GET',
+        summary: 'Resolves a callsign or ICAO24 to its origin and destination airports.',
+        params: [{ name: 'callsign', desc: 'Flight callsign, e.g. `UAL123`.' }, { name: 'icao24', desc: 'ICAO 24-bit address. Use instead of or with `callsign`.' }],
+        returns: ['origin', 'destination', 'source', 'timestamp'],
+        notes: 'Several sources are raced and the first valid answer wins.',
       },
       {
         path: '/api/space-weather',
@@ -203,8 +249,21 @@ export const API_GROUPS: ApiGroup[] = [
       {
         path: '/api/gdelt',
         method: 'GET',
-        summary: 'Geocoded world events from the GDELT project.',
+        summary: 'Disaster alerts from GDACS — earthquakes, storms, floods and wildfires, geocoded.',
         returns: ['events', 'total', 'source', 'timestamp'],
+        notes:
+          'Despite the name, this route reads GDACS. The GDELT event records live at `/api/gdelt-events`.',
+      },
+      {
+        path: '/api/gdelt-events',
+        method: 'GET',
+        summary: 'GDELT 2.0 event records with ActionGeo coordinates, refreshed on a 15-minute export.',
+        params: [
+          { name: 'query', desc: 'Keyword filter applied to the event records.' },
+          { name: 'limit', desc: 'Maximum results to return.', example: '50' },
+        ],
+        returns: ['events', 'total', 'source', 'timestamp'],
+        notes: 'Free, no auth required. This is the route that actually reads GDELT.',
       },
       {
         path: '/api/country-risk',
@@ -250,6 +309,24 @@ export const API_GROUPS: ApiGroup[] = [
         returns: ['stocks', 'timestamp'],
       },
       {
+        path: '/api/markets/history',
+        method: 'GET',
+        summary: 'OHLC candles for one instrument, at a resolution worth drawing.',
+        params: [
+          { name: 'symbol', required: true, desc: 'Instrument symbol, e.g. `RTX`.' },
+          { name: 'range', desc: 'Window to fetch.', example: '1d | 1w | 1m | 3m | 1y' },
+        ],
+        returns: ['candles', 'symbol', 'range', 'timestamp'],
+        notes: 'Each range carries its own interval — five-minute bars for a day, weekly for a year.',
+      },
+      {
+        path: '/api/chain/daily',
+        method: 'GET',
+        summary: 'Daily on-chain threat brief: exploits, CVEs and newly designated wallets.',
+        returns: ['exploits', 'cves', 'designations', 'degraded', 'date'],
+        notes: 'Fully keyless. Sections degrade independently and say why in `degraded`.',
+      },
+      {
         path: '/api/crypto',
         method: 'GET',
         summary: 'Spot prices for the assets shown in the status ticker.',
@@ -287,6 +364,22 @@ export const API_GROUPS: ApiGroup[] = [
         params: [{ name: 'url', required: true, desc: 'Stream URL to probe.' }],
         returns: ['available', 'blocked', 'provider', 'reason'],
         notes: '`blocked` distinguishes an upstream refusing our origin from a stream that is simply offline.',
+      },
+      {
+        path: '/api/cctv/resolve',
+        method: 'GET',
+        summary: "Resolves a camera's external page to a URL the viewer can actually embed.",
+        params: [{ name: 'url', required: true, desc: 'External camera page URL.' }],
+        returns: ['embedUrl', 'kind', 'provider'],
+        notes: 'Only the providers that need a lookup are resolved; HLS-backed feeds are passed through untouched.',
+      },
+      {
+        path: '/api/cctv/texas/snapshot',
+        method: 'GET',
+        summary: 'TxDOT camera snapshot, decoded to an image the viewer can show directly.',
+        params: [{ name: 'id', required: true, desc: 'TxDOT camera identifier.' }],
+        returns: ['…binary image'],
+        notes: 'TxDOT serves base64 JPEGs inside JSON rather than image URLs; this route decodes that one fixed upstream.',
       },
       {
         path: '/api/cctv/proxy',
@@ -341,6 +434,42 @@ export const API_GROUPS: ApiGroup[] = [
         summary: 'Geolocates the calling client by IP.',
         returns: ['status', 'query', 'city', 'regionName', 'country', 'lat', 'lon', 'isp', 'org'],
       },
+      {
+        path: '/api/geo/reverse',
+        method: 'GET',
+        summary: 'The place name for a coordinate.',
+        params: [
+          { name: 'lat', required: true, desc: 'Latitude.', example: '51.5072' },
+          { name: 'lon', required: true, desc: 'Longitude.', example: '-0.1276' },
+        ],
+        returns: ['display_name', 'locality', 'region', 'country'],
+        notes:
+          'The coordinate is rounded to a tenth of a degree before it is asked about — about 11 km, far finer than "city, region, country" and fine enough that the result is cacheable and shared.',
+      },
+      {
+        path: '/api/geosearch',
+        method: 'GET',
+        summary: 'Type-ahead location search for the route planner and spotlight.',
+        params: [
+          { name: 'q', required: true, desc: 'Partial place name.', example: 'eiffel tow' },
+          { name: 'limit', desc: 'Maximum results to return.', example: '6' },
+        ],
+        returns: ['results', 'total'],
+        notes:
+          'Nominatim is a geocoder, not a type-ahead index, so it needs near-complete input; this is Photon first and Nominatim after, which is what makes a typo or a half-typed name return the right place.',
+      },
+      {
+        path: '/api/directions',
+        method: 'GET',
+        summary: 'Turn-by-turn directions between two points.',
+        params: [
+          { name: 'from', required: true, desc: '`lat,lon` of the start.', example: '52.52,13.405' },
+          { name: 'to', required: true, desc: '`lat,lon` of the end.', example: '48.858,2.294' },
+          { name: 'mode', desc: 'Costing profile.', example: 'auto | bicycle | pedestrian' },
+        ],
+        returns: ['legs', 'distance_m', 'duration_s', 'source'],
+        notes: 'Valhalla first with narrative instructions; the OSRM demo server as a driving-only fallback.',
+      },
     ],
   },
   {
@@ -359,6 +488,15 @@ export const API_GROUPS: ApiGroup[] = [
         method: 'GET',
         summary: 'Listed botnet C2 servers from abuse.ch Feodo Tracker — blocklist entries, not observed attacks.',
         returns: ['indicators', 'total', 'online', 'fetched_at', 'source', 'source_url'],
+      },
+      {
+        path: '/api/cloudflare-radar',
+        method: 'GET',
+        summary: 'Internet disruption and attack-origin telemetry from Cloudflare Radar.',
+        returns: ['configured', 'outages', 'attack_origins', 'total_outages', 'total_attack_origins', 'source', 'timestamp'],
+        env: ['CLOUDFLARE_API_TOKEN'],
+        notes:
+          'Fails closed: with no token the route reports itself unconfigured and the map layer stays hidden. The token is read server-side and never appears in a response.',
       },
       {
         path: '/api/malware',
@@ -507,6 +645,33 @@ export const API_GROUPS: ApiGroup[] = [
         returns: ['target_ip', '…sweep results'],
         notes: 'Only sweep ranges you are authorised to test.',
       },
+      {
+        path: '/api/osint/username',
+        method: 'GET',
+        summary: 'Username enumeration across social platforms, on the Sherlock priority tier.',
+        params: [{ name: 'username', required: true, desc: 'Target handle.' }],
+        returns: ['accounts', 'total', 'checked'],
+        notes: "Sherlock Project's detection rules against its site database (MIT). Keyless.",
+      },
+      {
+        path: '/api/osint/fingerprint',
+        method: 'GET',
+        summary: 'Username search across the whole site database, streamed as verdicts arrive.',
+        params: [{ name: 'username', required: true, desc: 'Target handle.' }],
+        returns: ['…streamed verdict events'],
+        notes:
+          'The same detection rules as /api/osint/username over the full database rather than the priority tier. A sweep takes tens of seconds, so results are streamed rather than held back.',
+      },
+      {
+        path: '/api/osint/crypto',
+        method: 'GET',
+        summary: 'On-chain wallet intelligence: balance, activity, counterparties and OFAC screening.',
+        params: [{ name: 'address', required: true, desc: 'BTC, ETH or SOL address.' }],
+        returns: ['balance', 'activity', 'counterparties', 'ofac', 'risk_score', 'source'],
+        env: ['ETHERSCAN_API_KEY', 'HELIUS_API_KEY'],
+        notes:
+          'Baseline sources are keyless; the optional keys deepen the result. The risk score is transparent — it is computed from the fields returned, not asserted by a model.',
+      },
     ],
   },
   {
@@ -532,6 +697,99 @@ export const API_GROUPS: ApiGroup[] = [
         notes:
           'Returns 503 when `SCANNER_URL` / `SCANNER_KEY` are unset — that is the supported way to disable RECON. `SCANNER_KEY` must equal the backend’s `OSIRIS_KEY`.',
       },
+      {
+        path: '/api/scanner/stream/{feedId}',
+        method: 'GET',
+        summary: 'Same-origin proxy for a public-safety radio feed.',
+        params: [{ name: 'feedId', required: true, desc: 'Feed identifier from /api/scanner.' }],
+        returns: ['…binary audio stream'],
+        notes:
+          'Only allowlisted hosts are proxied; a feed pointing anywhere else is refused with 403 rather than streamed through.',
+      },
+    ],
+  },
+  {
+    id: 'integrations',
+    title: 'Security Tool Integrations',
+    blurb:
+      'The registry, state and findings behind the security-tool windows. Deny-by-default: a capability that is not on a tool’s allowlist is refused before anything runs.',
+    endpoints: [
+      {
+        path: '/api/integrations/tools',
+        method: 'GET',
+        summary: 'The tool registry, for a client that is not this platform.',
+        returns: ['tools', 'total'],
+        notes:
+          'The Android and Windows apps read the registry from here rather than keeping their own copy, so one manifest is the only place a tool’s name, capabilities and risk class change. Open by default; a deployment sets OSIRIS_REGISTRY_REQUIRE_AUTH to close it behind a session, and a caller without one is refused 401.',
+      },
+      {
+        path: '/api/integrations/state',
+        method: 'GET',
+        summary: 'The server-derived integration state for every registered tool.',
+        returns: ['states'],
+        notes: 'The dashboard is a client component, so the state is decided on the server and the client only renders the answer.',
+      },
+      {
+        path: '/api/integrations/health',
+        method: 'GET',
+        summary: 'The health of every integration source, and the platform’s own readiness.',
+        returns: ['ok', 'sources', 'down', 'degraded', 'database', 'timestamp'],
+        notes:
+          'Answers without a session, because a load balancer’s probe cannot sign in and a health check it cannot reach never fires. So it reports process-level facts only: each source carries its health, its failure count and its timings, but not `lastError`. That text is whatever an upstream client put in the error, and the dispatcher serves a stripped form of it only to a caller it has already authenticated — see the audit trail for the full message. `ok` is false when any source is down, so a load balancer can act on it without parsing the body.',
+      },
+      {
+        path: '/api/integrations/devices',
+        method: ['GET', 'POST', 'PUT'],
+        summary:
+          "The devices that may push into the platform, and the making and rotating of their secrets.",
+        returns: ['ok', 'devices', 'count'],
+        notes:
+          "A sensor is not a user: it has no session and no way to sign in. It proves itself with a shared secret, and the platform keeps only the secret's hash — so a secret is shown **once**, and a caller that loses it rotates rather than asks. `POST` creates a device and returns its secret; `PUT` rotates it, and the new secret takes effect at once while the previous one keeps working for a grace window, so a box on a rooftop is not silenced while it is being told. Creating and rotating a device are administrative acts, so the caller has to be an administrator, and the tenant is the caller's own. `GET` lists the tenant's devices and never their secrets.",
+      },
+      {
+        path: '/api/integrations/costs',
+        method: 'GET',
+        summary: "What the day's calls have cost, per tool.",
+        params: [
+          { name: 'day', desc: 'The day to report, as `YYYY-MM-DD`. Defaults to today.', example: '2026-10-21' },
+        ],
+        returns: ['ok', 'day', 'tenantId', 'lines', 'priced', 'total', 'detail'],
+        notes:
+          "A quota says how many calls a tenant may make; a cost says what those calls cost. Most of the platform is the operator's own machine reading their own files, and a few capabilities reach a service that meters — a Shodan query is a credit, a request to a paid model provider is a request. The unit is the provider's, not money: the platform knows how many have been spent, and what one is worth is between the operator and their bill. `priced` lists the capabilities that cost anything; `lines` reports every tool used today, including the free ones, because a tool that was used and cost nothing is a different fact from a tool that was not used.",
+      },
+      {
+        path: '/api/integrations/entities',
+        method: 'GET',
+        summary: 'The drones and surveillance devices the sensors have seen, as things rather than sightings.',
+        params: [
+          { name: 'kind', desc: '`drones`, `devices`, or `all` (the default).', example: 'devices' },
+          { name: 'limit', desc: 'How many of each to return, at most 1000.', example: '500' },
+        ],
+        returns: ['ok', 'kind', 'drones', 'devices', 'counts'],
+        notes:
+          "A finding is a moment — this camera, at this place, now. This is the camera: one row, however many times it has been seen, carrying the observation count and the first and last sighting. A camera seen four hundred times is one camera seen four hundred times, and a card that says so is a different card from one that says 'seen once'. The attribution tier is never raised by repetition: a sighting confirms that the device was there, and nothing more. The tenant is the caller's own — these are the positions of real cameras and real people.",
+      },
+      {
+        path: '/api/integrations/findings',
+        method: 'GET',
+        summary: 'Persisted findings as map records, with their provenance.',
+        params: [
+          { name: 'geospatial', desc: 'Set to `0` to return every finding, not only the ones with coordinates.', example: '0' },
+        ],
+        returns: ['findings', 'total', 'source', 'timestamp'],
+        notes:
+          'A finding becomes a beacon only if it says where it is; one without coordinates is a row in a table, not a place on the map.',
+      },
+      {
+        path: '/api/integrations/ingest',
+        method: 'POST',
+        summary: 'Sensor push endpoint for devices that prove themselves with a shared secret.',
+        returns: ['accepted', 'recorded', 'duplicates'],
+        headers: { 'X-Device-Key': '$DEVICE_SHARED_SECRET' },
+        requiresAuth: true,
+        notes:
+          'The secret is compared in constant time against a stored hash, the device is checked against the tools it may push, and the payload is validated before a row is written. 401 without a device credential.',
+      },
     ],
   },
   {
@@ -555,7 +813,7 @@ export const API_GROUPS: ApiGroup[] = [
     id: 'ai',
     title: 'AI Analysis',
     blurb:
-      'Gemini-backed correlation over feed data you supply. All three are POST, all three are rate limited to 5 requests per minute per IP.',
+      'Gemini-backed correlation over feed data you supply, plus the platform\'s own provider registry and chat proxy. The three analysis routes are POST and rate limited to 5 requests per minute per IP.',
     endpoints: [
       {
         path: '/api/ai/analyze',
@@ -597,6 +855,37 @@ export const API_GROUPS: ApiGroup[] = [
     "news": [{ "id": "a1", "title": "Drone attack on Kharkiv", "source": "t.me/liveuamap", "bloc": "western", "published": "2026-09-17T11:00:00Z" }],
     "earthquakes": [{ "magnitude": 5.4, "place": "80 km S of Kuril", "time": 1789646400000 }]
   }
+}`,
+      },
+      {
+        path: '/api/ai/providers',
+        method: 'GET',
+        summary: 'The AI providers this deployment has, without their keys.',
+        returns: ['providers', 'configured', 'default'],
+        notes:
+          'A provider is listed with whether it is configured, never with how to reach it — the key stays in the environment and is not part of this response.',
+      },
+      {
+        path: '/api/ai/downloads',
+        method: ['GET', 'POST'],
+        summary: "The model download manager: what's installed, what's running, and how to start one.",
+        params: [{ name: 'action', required: true, desc: 'list | start | cancel', example: 'list' }],
+        returns: ['models', 'running', 'installed', 'ok', 'error'],
+        notes:
+          'The download host is checked against an allowlist in the manager, and a finished file is moved into place atomically — a half-written model is never visible as an installed one.',
+      },
+      {
+        path: '/api/ai/chat',
+        method: 'POST',
+        summary: 'Chat against any provider the deployment has configured.',
+        returns: ['…reply'],
+        notes:
+          'The provider is chosen from the registry, so a request can only reach an origin the operator configured, and the model id is validated before it is used. An unconfigured provider returns 503; a bad model id returns 400. What the call cost is recorded as well as made: a provider reports its token usage in the final frame of a streamed reply, so the reply is counted on its way through and is never held up to be read. The figure lands in /api/integrations/costs under `ai-token`, or as one `ai-request` when the provider reported none.',
+        bodyExample: `{
+  "provider": "openrouter",
+  "model": "…validated model id",
+  "messages": [{ "role": "user", "content": "…" }],
+  "stream": true
 }`,
       },
     ],

@@ -716,7 +716,14 @@ export async function warmCctvCatalog() {
   await persistCatalogue();
 }
 
-/** Test seam — drops queued refreshes between cases. */
+/**
+ * Test seam — drops queued refreshes between cases.
+ *
+ * The backoff map goes with them. A region whose upstream timed out is
+ * left alone for five minutes on purpose, and that is right in
+ * production — but a case that leaves a region backed off would silently
+ * change the meaning of every case after it.
+ */
 export function clearCctvRefreshes() {
   refreshing.clear();
   backedOff.clear();

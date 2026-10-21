@@ -19,6 +19,8 @@ import CctvPreviews, { type PreviewCamera } from '@/components/CctvPreviews';
 import MapControls from '@/components/MapControls';
 import LiveNewsPreviews, { type PreviewFeed } from '@/components/LiveNewsPreviews';
 import { attachTerrain, type TerrainStatus } from '@/lib/map-terrain';
+import { BEACONS } from '@/lib/map/beacons';
+import { registerBeaconSprites, beaconSpriteId, type BeaconMap } from '@/lib/map/beacon-sprites';
 
 import { applyMapProjection } from '@/lib/map-projection';
 
@@ -58,6 +60,9 @@ interface OsirisMapProps {
   mapStyle?: string;
   sweepData?: any;
   scanTargets?: any[];
+  /** Detections from the security tools, each with the beacon kind that
+   *  decides its sprite and its card. */
+  securityFindings?: Array<{ kind: string; lat: number; lng: number; properties?: Record<string, unknown> }>;
   demoMode?: boolean;
   theme?: 'core' | 'ghost';
   drawnPolygons?: Array<{ id: string; name: string; geojson: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.LineString>; color: string }>;
@@ -180,7 +185,7 @@ interface AlertPinFeature {
   properties: AlertPinProps;
 }
 
-function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightClick, onViewStateChange, onReady, flyToLocation, alertPinIds = null, projection = 'globe', terrainEnabled = false, terrainRetry = 0, terrainFocus = 0, onTerrainStatusChange, mapStyle = 'dark', sweepData, scanTargets = [], demoMode = false, theme = 'core', drawnPolygons = [], arcgisLayers = [], drawMode = null, onDrawComplete, onDrawProgress, onDrawCancel, drawCommand = null, onMapCenter, route = null, userLocation = null, followUser = false, onFollowInterrupt, navigating = false, aircraftAirports = {}, onOiGlobe, onOiSelect, onOiHover, onOiFollow, oiHighlight = null }: OsirisMapProps) {
+function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightClick, onViewStateChange, onReady, flyToLocation, alertPinIds = null, projection = 'globe', terrainEnabled = false, terrainRetry = 0, terrainFocus = 0, onTerrainStatusChange, mapStyle = 'dark', sweepData, scanTargets = [], securityFindings = [], demoMode = false, theme = 'core', drawnPolygons = [], arcgisLayers = [], drawMode = null, onDrawComplete, onDrawProgress, onDrawCancel, drawCommand = null, onMapCenter, route = null, userLocation = null, followUser = false, onFollowInterrupt, navigating = false, aircraftAirports = {}, onOiGlobe, onOiSelect, onOiHover, onOiFollow, oiHighlight = null }: OsirisMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
@@ -434,8 +439,13 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       createDot(map, 'dot-fire', isGhost ? phantomPurple : '#E65100', 10);
       createDot(map, 'dot-cctv', cameraColor, 10);
 
-      const sources = ['flights','military','jets','private-fl','satellites','earthquakes','gdelt','day-night','cctv','fires','weather','infrastructure','maritime','maritime-choke','maritime-ships','live-news','conflict-zones', 'war-alerts-targets', 'war-alerts-lines', 'balloons', 'radiation', 'ip-sweep-devices', 'ip-sweep-pulse', 'ip-sweep-connections', 'scan-targets', 'sdk-entities', 'sdk-links', 'malware-nodes', 'malware-new', 'network-mesh', 'cyber-heads', 'gdelt-events', 'cf-outages', 'cf-attacks', 'alert-pins'];
+      const sources = ['flights','military','jets','private-fl','satellites','earthquakes','gdelt','day-night','cctv','fires','weather','infrastructure','maritime','maritime-choke','maritime-ships','live-news','conflict-zones', 'war-alerts-targets', 'war-alerts-lines', 'balloons', 'radiation', 'ip-sweep-devices', 'ip-sweep-pulse', 'ip-sweep-connections', 'scan-targets', 'sdk-entities', 'sdk-links', 'malware-nodes', 'malware-new', 'network-mesh', 'cyber-heads', 'gdelt-events', 'cf-outages', 'cf-attacks', 'alert-pins', 'security-findings'];
       sources.forEach(s => map.addSource(s, { type: 'geojson', data: EMPTY_FC }));
+
+      /* The beacon sprites are drawn, not shipped. Registering them here
+         means every kind of tool detection gets a marker without a single
+         image file in the repository. */
+      registerBeaconSprites(map as unknown as BeaconMap, BEACONS);
 
       // ── FLIGHT ROUTE VISUALIZATION SOURCES & LAYERS ──
 
@@ -591,6 +601,17 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
 
       map.addLayer({ id: 'gdelt-dots', type: 'circle', source: 'gdelt', paint: {
         'circle-radius': 4, 'circle-color': '#D32F2F', 'circle-opacity': 0.5, 'circle-stroke-width': 1, 'circle-stroke-color': '#D32F2F', 'circle-stroke-opacity': 0.25,
+      }});
+
+      /* ── Security findings — one beacon layer for every tool ──────────
+         A detection from any tool lands in the same source, and the
+         beacon kind decides which sprite it gets. The layer is a symbol
+         layer so the drawn sprite carries its own colour; the glow and
+         the pulse come with the sprite rather than being painted here. */
+      map.addLayer({ id: 'security-beacons', type: 'symbol', source: 'security-findings', layout: {
+        'icon-image': ['get', 'sprite'],
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
       }});
 
       /* ── GDELT 2.0 Events — coloured by CAMEO QuadClass so cooperation and
@@ -1127,6 +1148,28 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       // Also fly to the camera
       map.flyTo({ center: coords, zoom: Math.max(map.getZoom(), 13), duration: 1000 });
     });
+
+    // ── Security findings (one beacon layer for every tool) ──
+    /* A click on a beacon opens the card for its kind. The card is a React
+       component, so the click is handed to the page rather than drawn here
+       — the page already knows how to show a detail panel, and drawing a
+       second, different kind of card inside the map would be the drift
+       this card system exists to prevent. */
+    map.on('click', 'security-beacons', e => {
+      if (!e.features?.length) return;
+      const f = e.features[0];
+      const p = (f.properties ?? {}) as Record<string, unknown>;
+      const coords = (f.geometry as any).coordinates as [number, number];
+      onEntityClick?.({
+        type: 'security-beacon',
+        kind: String(p.kind ?? 'security-finding'),
+        properties: p,
+        lat: coords[1],
+        lng: coords[0],
+      });
+    });
+    map.on('mouseenter', 'security-beacons', () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', 'security-beacons', () => { map.getCanvas().style.cursor = ''; });
 
     // ── Earthquakes (with USGS link) ──
     map.on('click', 'eq-circles', e => {
@@ -2528,6 +2571,32 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     const src = map.getSource('scan-targets') as maplibregl.GeoJSONSource;
     if (src) src.setData({ type: 'FeatureCollection', features });
   }, [scanTargets, mapReady]);
+
+  /* ── Security findings ────────────────────────────────────────────────
+     Every tool's detections land in one source. The beacon kind decides
+     the sprite, so a Flock camera and a drone are told apart on the map
+     without either tool knowing about the other. */
+  useEffect(() => {
+    if (!mapReady || !mapRef.current) return;
+    const map = mapRef.current;
+    const src = map.getSource('security-findings') as maplibregl.GeoJSONSource | undefined;
+    if (!src) return;
+
+    const list = securityFindings ?? [];
+    const features = list
+      .filter((f) => Number.isFinite(f.lat) && Number.isFinite(f.lng))
+      .map((f) => ({
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [f.lng, f.lat] },
+        properties: {
+          kind: f.kind,
+          sprite: beaconSpriteId(f.kind),
+          ...(f.properties ?? {}),
+        },
+      }));
+
+    src.setData({ type: 'FeatureCollection', features });
+  }, [securityFindings, mapReady]);
 
   // Projection changes are independent of terrain. Toggling elevation must not
   // zoom, tilt, or reposition the camera the user has already chosen.

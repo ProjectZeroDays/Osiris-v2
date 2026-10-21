@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { gatherContext, marketLine, scoreNews, selectContext, terms, type RawNews, type Sources } from './context';
 
 const NOW = Date.parse('2026-10-02T12:00:00Z');
@@ -68,7 +68,19 @@ describe('marketLine', () => {
 });
 
 describe('gatherContext', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('carries on without a source that fails', async () => {
+    // The fixture is dated, and the recency window is measured against the
+    // clock. The clock is therefore pinned to the fixture's own moment:
+    // otherwise the stories quietly fall out of the window as the fixture
+    // ages, and the test fails for a reason that has nothing to do with
+    // what it is testing.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(NOW));
+
     const sources: Sources = {
       news: async () => NEWS,
       quakes: async () => { throw new Error('USGS down'); },
