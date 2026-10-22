@@ -27,6 +27,7 @@ import WorldRemote from '@/components/WorldRemote';
 import ArcGISPanel from '@/components/ArcGISPanel';
 import { AuthGate } from '@/components/AuthGate';
 import { SecurityToolsGridClient } from '@/components/security-tools/SecurityToolsGridClient';
+import FirstRunScreen from '@/components/FirstRunScreen';
 import { BeaconPopupCard } from '@/components/map/BeaconPopupCard';
 import EntityGraph from '@/components/EntityGraph';
 import { usePmtiles } from '@/lib/usePmtiles';
