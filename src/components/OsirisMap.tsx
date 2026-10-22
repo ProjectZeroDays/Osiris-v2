@@ -23,6 +23,8 @@ import { BEACONS } from '@/lib/map/beacons';
 import { registerBeaconSprites, beaconSpriteId, type BeaconMap } from '@/lib/map/beacon-sprites';
 
 import { applyMapProjection } from '@/lib/map-projection';
+import { installPmtilesProtocol } from '@/lib/pmtiles-protocol';
+import ShaderPost from '@/components/ShaderPost';
 
 /** The catalogue fields the satellite layer and its popup actually read. */
 interface SatelliteRow {
@@ -58,6 +60,10 @@ interface OsirisMapProps {
   onTerrainStatusChange?: (status: TerrainStatus) => void;
 
   mapStyle?: string;
+  pmtilesEnabled?: boolean;
+  pmtilesFile?: string;
+  shaderMode?: 'none' | 'flir' | 'nvg' | 'crt';
+  shaderIntensity?: number;
   sweepData?: any;
   scanTargets?: any[];
   /** Detections from the security tools, each with the beacon kind that
@@ -185,7 +191,7 @@ interface AlertPinFeature {
   properties: AlertPinProps;
 }
 
-function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightClick, onViewStateChange, onReady, flyToLocation, alertPinIds = null, projection = 'globe', terrainEnabled = false, terrainRetry = 0, terrainFocus = 0, onTerrainStatusChange, mapStyle = 'dark', sweepData, scanTargets = [], securityFindings = [], demoMode = false, theme = 'core', drawnPolygons = [], arcgisLayers = [], drawMode = null, onDrawComplete, onDrawProgress, onDrawCancel, drawCommand = null, onMapCenter, route = null, userLocation = null, followUser = false, onFollowInterrupt, navigating = false, aircraftAirports = {}, onOiGlobe, onOiSelect, onOiHover, onOiFollow, oiHighlight = null }: OsirisMapProps) {
+function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightClick, onViewStateChange, onReady, flyToLocation, alertPinIds = null, projection = 'globe', terrainEnabled = false, terrainRetry = 0, terrainFocus = 0, onTerrainStatusChange, mapStyle = 'dark', pmtilesEnabled, pmtilesFile, shaderMode = 'none', shaderIntensity = 0.5, sweepData, scanTargets = [], securityFindings = [], demoMode = false, theme = 'core', drawnPolygons = [], arcgisLayers = [], drawMode = null, onDrawComplete, onDrawProgress, onDrawCancel, drawCommand = null, onMapCenter, route = null, userLocation = null, followUser = false, onFollowInterrupt, navigating = false, aircraftAirports = {}, onOiGlobe, onOiSelect, onOiHover, onOiFollow, oiHighlight = null }: OsirisMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
@@ -405,6 +411,16 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     map.on('load', () => {
       mapRef.current = map;
 
+      /* Install the pmtiles:// protocol so MapLibre can load tiles from
+         air-gapped PMTiles archives stored in public/pmtiles/. */
+      if (pmtilesEnabled && pmtilesFile) {
+        try {
+          installPmtilesProtocol(maplibregl.addProtocol);
+        } catch (e) {
+          console.warn('[OSIRIS] Failed to install pmtiles protocol:', e instanceof Error ? e.message : e);
+        }
+      }
+
       /* Measure the container once the layout has settled. The constructor
          may have read it before it had a size, and a map that starts at the
          400x300 fallback never recovers on its own. */
@@ -441,6 +457,15 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
 
       const sources = ['flights','military','jets','private-fl','satellites','earthquakes','gdelt','day-night','cctv','fires','weather','infrastructure','maritime','maritime-choke','maritime-ships','live-news','conflict-zones', 'war-alerts-targets', 'war-alerts-lines', 'balloons', 'radiation', 'ip-sweep-devices', 'ip-sweep-pulse', 'ip-sweep-connections', 'scan-targets', 'sdk-entities', 'sdk-links', 'malware-nodes', 'malware-new', 'network-mesh', 'cyber-heads', 'gdelt-events', 'cf-outages', 'cf-attacks', 'alert-pins', 'security-findings'];
       sources.forEach(s => map.addSource(s, { type: 'geojson', data: EMPTY_FC }));
+
+      // PMTiles basemap source (air-gapped offline tiles)
+      if (pmtilesEnabled && pmtilesFile) {
+        map.addSource('pmtiles-basemap', {
+          type: 'vector',
+          url: `pmtiles://${pmtilesFile}`,
+          maxzoom: 14,
+        });
+      }
 
       /* The beacon sprites are drawn, not shipped. Registering them here
          means every kind of tool detection gets a marker without a single
@@ -3486,6 +3511,9 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       )}
       {selectedSat && <SatelliteCard sat={selectedSat} onClose={clearSat} />}
       {mapReady && <MapControls mapRef={mapRef} onInteract={onFollowInterrupt} />}
+      {mapReady && shaderMode && (
+        <ShaderPost mode={shaderMode} intensity={shaderIntensity} visible={!!shaderMode} />
+      )}
     </>
   );
 }

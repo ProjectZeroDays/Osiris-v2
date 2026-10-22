@@ -5,7 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plane, Satellite, Sun, AlertTriangle, Camera,
   CloudLightning, Ship, Network, Database, Ghost,
-  Flame, Tv, Radio, Mountain, Anchor, Megaphone, SlidersHorizontal
+  Flame, Tv, Radio, Mountain, Anchor, Megaphone, SlidersHorizontal,
+  Layers, Settings, Cpu, Zap
 } from 'lucide-react';
 import StyleStudio from './StyleStudio';
 import { TERRAIN_MIN_ZOOM, type TerrainStatus } from '@/lib/map-terrain';
@@ -148,6 +149,24 @@ const LAYER_GROUPS: LayerGroupDef[] = [
       { key: 'day_night', label: 'Day / Night Cycle', dataKey: '' },
       { key: 'terrain_3d', label: '3D Buildings', description: 'City detail · zoom 14.5+', dataKey: '' },
       { key: 'terrain_elevation', label: '3D Terrain', description: 'Mountains · zoom 10+', dataKey: '' },
+    ],
+  },
+  {
+    label: 'OFFLINE',
+    fullLabel: 'OFFLINE BASEMAP',
+    icon: Database,
+    layers: [
+      { key: 'pmtiles', label: 'PMTiles Archive', description: 'Air-gapped basemap · local tile archive', dataKey: '' },
+    ],
+  },
+  {
+    label: 'OPTICS',
+    fullLabel: 'OPTICAL POST-PROCESSING',
+    icon: Cpu,
+    layers: [
+      { key: 'shader_flir', label: 'FLIR Thermal', description: 'Infrared heat signature', dataKey: '' },
+      { key: 'shader_nvg', label: 'NVG Phosphor', description: 'Night vision green', dataKey: '' },
+      { key: 'shader_crt', label: 'CRT Scanlines', description: 'Retro terminal display', dataKey: '' },
     ],
   },
 ];

@@ -28,6 +28,8 @@ import ArcGISPanel from '@/components/ArcGISPanel';
 import { AuthGate } from '@/components/AuthGate';
 import { SecurityToolsGridClient } from '@/components/security-tools/SecurityToolsGridClient';
 import { BeaconPopupCard } from '@/components/map/BeaconPopupCard';
+import EntityGraph from '@/components/EntityGraph';
+import { usePmtiles } from '@/lib/usePmtiles';
 const OsirisMap = dynamic(() => import('@/components/OsirisMap'), { ssr: false });
 const LayerPanel = dynamic(() => import('@/components/LayerPanel'));
 const SpaceCam = dynamic(() => import('@/components/SpaceCam'), { ssr: false });
@@ -332,10 +334,14 @@ export default function Dashboard() {
   const [securityFindings, setSecurityFindings] = useState<Array<{ kind: string; lat: number; lng: number; properties?: Record<string, unknown> }>>([]);
   /* The beacon whose card is open, if any. */
   const [selectedBeacon, setSelectedBeacon] = useState<{ kind: string; properties: Record<string, unknown> } | null>(null);
+  /* PMTiles offline basemap */
+  const [pmtilesFile, setPmtilesFile] = useState('');
+  const [shaderIntensity, setShaderIntensity] = useState(0.5);
+  const [entityGraphOpen, setEntityGraphOpen] = useState(false);
   const [arcgisLayers, setArcgisLayers] = useState<Array<{ id: string; title: string; url: string; geojson: any; color: string; visible: boolean; opacity: number }>>([]);
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number; bounds?: { west: number; south: number; east: number; north: number } } | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [mobilePanel, setMobilePanel] = useState<'layers'|'markets'|'intel'|'search'|'recon'|'security'|'remote'|'oi'|null>(null);
+  const [mobilePanel, setMobilePanel] = useState<'layers'|'markets'|'intel'|'search'|'recon'|'security'|'remote'|'oi'|'entitygraph'|null>(null);
 
   // ── OSIRIS OI ── the run lives here, not in the panel, so the globe keeps
   // drawing it while the panel is closed. State goes to the map's OI layer
@@ -461,6 +467,7 @@ export default function Dashboard() {
   }, []);
 
   const isMobile = useIsMobile();
+  const { files: pmtilesFiles } = usePmtiles();
   const startTime = useRef(Date.now());
   const geocodeCache = useRef<Map<string, string>>(new Map());
   const geocodeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -512,6 +519,10 @@ export default function Dashboard() {
     gdelt_events: false,
     cf_outages: false,
     cf_attacks: false,
+    pmtiles: false,
+    shader_flir: false,
+    shader_nvg: false,
+    shader_crt: false,
   });
   // ── OI ASSIST ── the conversation, and the page it works: the camera, the
   // layers, the panels, the live data, and what it marks on the map. It lives
@@ -530,6 +541,14 @@ export default function Dashboard() {
   useEffect(() => { assistLayers.current = activeLayers; }, [activeLayers]);
   useEffect(() => { assistVoice.current = oiVoice; }, [oiVoice]);
   useEffect(() => { assistOi.current = oi; });
+
+  /** Derived shader mode — at most one shader active at a time. */
+  const shaderMode = useMemo(() => {
+    if (activeLayers.shader_flir) return 'flir';
+    if (activeLayers.shader_nvg) return 'nvg';
+    if (activeLayers.shader_crt) return 'crt';
+    return 'none';
+  }, [activeLayers]);
   useEffect(() => {
     assistView.current = { lat: mapCenter?.lat ?? 20, lng: mapCenter?.lng ?? 0, zoom: mapView.zoom, projection: mapProjection, style: mapStyle, bounds: mapCenter?.bounds };
   }, [mapCenter, mapView.zoom, mapProjection, mapStyle]);
@@ -1625,6 +1644,10 @@ export default function Dashboard() {
           onOiHover={setOiHover}
           onOiFollow={setOiFollowing}
           oiHighlight={oiHighlight}
+          pmtilesEnabled={activeLayers.pmtiles}
+          pmtilesFile={pmtilesFile}
+          shaderMode={shaderMode}
+          shaderIntensity={shaderIntensity}
         />
       </ErrorBoundary>
 
@@ -2070,8 +2093,27 @@ export default function Dashboard() {
           </AnimatePresence>
         </div>
 
+        {/* ── ENTITY GRAPH ── */}
+        <div className="relative group">
+          <button onClick={() => { setEntityGraphOpen(o => !o); setShowOi(false); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); }} className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/50 ${entityGraphOpen ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title="Entity Graph — link analysis of tagged entities" aria-label="Entity Graph" aria-expanded={entityGraphOpen}>
+            <Network className={`w-4 h-4 ${entityGraphOpen ? 'text-[var(--gold-primary)]' : 'text-white/60'}`} />
+          </button>
+          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[9px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity pointer-events-none">GRAPH</span>
+        </div>
 
       </motion.div>}
+
+      {/* ── ENTITY GRAPH PANEL ── */}
+      {entityGraphOpen && (
+        <div className="absolute right-20 top-1/2 -translate-y-1/2 z-[420] w-[420px] max-w-[calc(100vw-80px)] pointer-events-auto">
+          <div className="glass-panel p-3 max-h-[70vh] overflow-y-auto styled-scrollbar">
+            <EntityGraph
+              entities={[]}
+              links={[]}
+            />
+          </div>
+        </div>
+      )}
 
       {/* ── LIVE FEED VIEWER OVERLAY ── */}
       <AnimatePresence>
@@ -2181,6 +2223,7 @@ export default function Dashboard() {
                 // because both answer "take me somewhere".
                 { id: 'route' as const, icon: Route, label: 'ROUTE' },
                 { id: 'remote' as const, icon: Bluetooth, label: 'REMOTE' },
+                { id: 'entitygraph' as const, icon: Network, label: 'GRAPH' },
               ].map(tab => {
                 // Routing opens the planner at the top of the screen rather than
                 // the bottom drawer — it needs the room above the keyboard, and
@@ -2231,7 +2274,7 @@ export default function Dashboard() {
                 <div className="px-3 pb-3">
                   <div className="flex items-center justify-between mb-2">
                     <span className="hud-text text-[10px] text-[var(--text-primary)]">
-                      {mobilePanel === 'layers' ? 'LAYERS & STATS' : mobilePanel === 'markets' ? 'MARKETS & INTEL' : mobilePanel === 'intel' ? 'INTEL FEED' : mobilePanel === 'recon' ? 'OSIRIS RECON' : mobilePanel === 'security' ? 'AUTHORIZED SECURITY TOOLS' : mobilePanel === 'remote' ? 'WORLD REMOTE' : mobilePanel === 'oi' ? 'OSIRIS OI' : 'SEARCH'}
+                      {mobilePanel === 'layers' ? 'LAYERS & STATS' : mobilePanel === 'markets' ? 'MARKETS & INTEL' : mobilePanel === 'intel' ? 'INTEL FEED' : mobilePanel === 'recon' ? 'OSIRIS RECON' : mobilePanel === 'security' ? 'AUTHORIZED SECURITY TOOLS' : mobilePanel === 'remote' ? 'WORLD REMOTE' : mobilePanel === 'entitygraph' ? 'ENTITY LINK GRAPH' : mobilePanel === 'oi' ? 'OSIRIS OI' : 'SEARCH'}
                     </span>
                     <button onClick={() => setMobilePanel(null)} className="text-[var(--text-muted)] p-1"><X className="w-4 h-4" /></button>
                   </div>
@@ -2282,6 +2325,9 @@ export default function Dashboard() {
                       });
                       if (devs.length > 0) setFlyToLocation({ lat: devs[0].lat, lng: devs[0].lng, ts: Date.now() });
                     }} />
+                  )}
+                  {mobilePanel === 'entitygraph' && (
+                    <EntityGraph entities={[]} links={[]} />
                   )}
                 </div>
               </motion.div>
