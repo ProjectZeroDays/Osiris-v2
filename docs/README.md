@@ -1,4 +1,4 @@
-# OSIRIS documentation
+# OSIRIS-v2 Documentation
 
 A small wiki. Three pages existed before this one; this is the index
 that ties them together, so a reader can move between them instead of

@@ -1,8 +1,25 @@
 <div align="center">
 
-# ⬡ OSIRIS
+# ⬡ OSIRIS-v2
 
-### Open Source Intelligence & Reconnaissance Integrated System
+### Open Source Intelligence & Reconnaissance Integrated System — v2 Fork
+
+**Comparison to Original Project (`simplifaisoul/osiris`)**
+
+| Dimension | Original (`simplifaisoul/osiris`) | Osiris-v2 (this fork) |
+|---|---|---|
+| **Map Engine** | MapLibre GL | MapLibre GL + `pmtiles://` protocol + shader overlay |
+| **Offline Support** | External tile dependency | `public/pmtiles/` Docker volume; air-gapped basemaps |
+| **Post-Processing** | None | FLIR / NVG / CRT shader pipeline (`ShaderPost`) |
+| **Entity Link Graph** | None | `react-force-graph-2d` interactive node-link graph |
+| **Security Tools** | Limited / manual | 13-tool deny-by-default registry with dispatcher (`/api/integrations/`) |
+| **Audit / Retention** | In-memory only | Append-only audit + per-tool retention deadlines |
+| **Auth** | Demo / stub | Real session auth + asset registry + consent checks |
+| **API Gateway** | Per-route dispatch | Single gated dispatcher (`[tool]/[action]`) with capability allowlist |
+| **Wiki / Docs** | Basic | Full v4–v15 plan docs, gap analysis, installation guides |
+| **Release** | v1.0.19 artifacts | v1.0.5 with full feature set, all subagent work verified |
+
+This repository (`ProjectZeroDays/osiris`) is the **v2 continuation** — preserving every existing route, layer, and feature from the original while extending with PMTiles caching, WebGL shader pipeline, interactive entity graph, and complete security-tool integration blueprint (v4–v15).
 
 [![Live Demo](https://img.shields.io/badge/osirisai.live-00E5FF?style=for-the-badge&logo=vercel&logoColor=white)](https://osirislive.app)
 [![Support OSIRIS](https://img.shields.io/badge/Support_Project-Patreon-FF424D?style=for-the-badge&logo=patreon&logoColor=white)](https://www.patreon.com/posts/159077425)
