@@ -12,6 +12,10 @@ list below is read against something rather than in the abstract:
   every allow and every deny.
 - A shared tool window per tool, a beacon registry, and a popup card per
   beacon kind, all reading the same schema.
+- PMTiles offline basemap (`pub/pmtiles/`), shader post-processing (FLIR/NVG/CRT),
+  interactive entity graph (`react-force-graph-2d`) — v1.0.3
+- AI proxy (`ai/proxy/route.ts`), OpenRouter path, scanner-feeds CAP adapter — v13
+- Alert classifier stub (`alerts/AlertClassifier.tsx`) for AMBER/Silver/Blue — v15
 - Durable, tenant-scoped findings with per-tool retention deadlines, a
   dedup on the finding's id, and a pruning job.
 - Sessions, tenants, assets, consents and device credentials, with a
