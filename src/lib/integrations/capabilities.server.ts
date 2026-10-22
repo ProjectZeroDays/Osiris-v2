@@ -95,11 +95,13 @@ export const SAFE_CAPABILITIES = {
     "scanner.listOpenMhzSystems",
     "scanner.fetchCapAlerts",
     "scanner.importFeedList",
+    "scanner.fetchCapFeed",
   ],
   "imsi-catcher": [
     "cell.fetchTowers",
     "cell.ingestScan",
     "cell.listAnomalies",
+    "cell.validateHeuristic",
   ],
   "police-reports": [
     "police.fetchSocrata",
@@ -115,6 +117,7 @@ export const SAFE_CAPABILITIES = {
     "ai.startDownload",
     "ai.removeModel",
     "ai.chat",
+    "ai.proxyOpenRouter",
   ],
 
   // The wide tool collection. The worker behind it runs the tools; the

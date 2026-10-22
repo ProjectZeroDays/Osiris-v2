@@ -36,6 +36,7 @@ list below is read against something rather than in the abstract:
   middle.
 - **AIS direct** — the same, for maritime.
 - **CAP broadcast** — emit alerts rather than only consuming them.
+  - AMBER / Silver / Blue classifier wire-up (AlertClassifier) added v15.
 
 ## Map
 
