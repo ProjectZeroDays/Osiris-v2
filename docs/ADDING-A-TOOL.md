@@ -14,7 +14,10 @@ is written down.
 
 ### 1. The card
 
-`src/config/security-tools.ts` — add an entry to `SECURITY_TOOL_CARDS`:
+`src/config/security-tools.ts` — add an entry to `SECURITY_TOOL_CARDS`
+(alongside the 13 registered security tools: Shodan, Zenmap, Metasploit,
+Maltego, Sherlock, DedSec CCTV, Exploit-Index, SpyTV, Pegasus Pro, Ruflo,
+nrSuite, StrykerApp, Drone RID):
 
 ```ts
 {

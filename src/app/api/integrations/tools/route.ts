@@ -5,6 +5,7 @@ import { deriveIntegrationState } from "@/lib/integrations/state.server";
 import { TOOL_WINDOW_META } from "@/components/tools/window-meta";
 import { getAuthContext } from "@/lib/auth/context.server";
 import { registryRequiresAuth } from "@/lib/integrations/registry-gate";
+import { consumeQuota, DEFAULT_DAILY_QUOTA } from "@/lib/integrations/quota.server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,6 +44,17 @@ export async function GET() {
         { status: 401, headers: { "Cache-Control": "no-store" } },
       );
     }
+  }
+
+  // Quota gate before registry assembly (dispatcher analog)
+  const auth = await getAuthContext();
+  const quota = await consumeQuota(
+    auth.tenantId || "platform:shared",
+    "registry",
+    DEFAULT_DAILY_QUOTA,
+  );
+  if (!quota.allowed) {
+    return NextResponse.json({ error: "QUOTA_EXCEEDED" }, { status: 429, headers: { "Cache-Control": "no-store" } });
   }
 
   const tools = SECURITY_TOOL_CARDS.map((raw) => {

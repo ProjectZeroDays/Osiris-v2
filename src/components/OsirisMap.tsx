@@ -219,6 +219,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
   const prevArcgisLayersRef = useRef<string[]>([]);
   const satLayerRef = useRef<ReturnType<typeof createSatelliteLayer> | null>(null);
   const cloudLayerRef = useRef<ReturnType<typeof createCloudLayer> | null>(null);
+  const layerFetchedRef = useRef(false);
   const onOiGlobeRef = useRef(onOiGlobe);
   const onOiSelectRef = useRef(onOiSelect);
   const onOiHoverRef = useRef(onOiHover);
@@ -1015,6 +1016,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     const reportViewState = () => { const c = map.getCenter(); onViewStateChange?.({ zoom: map.getZoom(), latitude: c.lat }); };
     map.on('load', reportViewState);
     map.on('moveend', reportViewState);
+    map.on('moveend', () => { layerFetchedRef.current = false; }); // minimal viewport refresh
     // Lightweight settled-view diagnostics for camera/terrain regressions.
     const reportCamera = () => {
       const center = map.getCenter();

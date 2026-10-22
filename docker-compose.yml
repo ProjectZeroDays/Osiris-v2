@@ -17,6 +17,8 @@ services:
       - path: .env
         required: false
     environment:
+      # CSP / security headers are handled by the app; no extra env needed.
+      # If running behind a proxy, mirror CSP / X-Content-Type-Options / HSTS.
       - NODE_OPTIONS=--dns-result-order=ipv4first
       - NODE_ENV=production
       - PORT=3000

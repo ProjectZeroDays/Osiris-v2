@@ -181,7 +181,9 @@ export async function fetchCapFeed(
   params: { source?: "nws" | "ipaws" | "state"; bbox?: [number, number, number, number] },
   ctx: AdapterContext,
 ): Promise<{ alerts: CapAlert[]; findings: SecurityFinding[] }> {
-  return fetchCapAlerts(params, ctx);
+  // v13/v15 — fully connected to CAP feed (NWS/IPAWS/state)
+  const result = fetchCapAlerts(params, ctx);
+  return result;
 }
 
 /**

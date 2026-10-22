@@ -26,7 +26,9 @@ having to know which file to open.
   scanlines canvas overlay over MapLibre
 - **Entity node-link graph** — `react-force-graph-2d` link analysis for
   tagged entities (wallet / IP / aircraft)
-- **Security tool integrations** — 13 tools in the registry, deny-by-default
+- **Security tool integrations** — 13 tools in the registry (Shodan,
+  Zenmap, Metasploit, Maltego, Sherlock, DedSec CCTV, Exploit-Index,
+  SpyTV, Pegasus Pro, Ruflo, nrSuite, StrykerApp, Drone RID), deny-by-default
   capability allowlist, single gated dispatcher, per-tool detail pages
 
 ## Reference

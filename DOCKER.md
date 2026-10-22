@@ -25,6 +25,11 @@ docker compose up -d
 
 Open <http://localhost:3000>.
 
+> **Security / CSP:** The default compose setup relies on the platform's
+> built-in response headers (CSP, X-Content-Type-Options, etc.). If you
+> terminate TLS at a reverse proxy (nginx / traefik), ensure the proxy
+> delivers the same security header set; no additional CSP env is required.
+
 What the compose file does:
 
 - **`build:`** — compose builds the image locally from the `Dockerfile`, so

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { validateHost, isRateLimited, getClientIp } from '@/lib/ssrf-guard';
+import { fetchCapFeed } from '@/lib/integrations/adapters/scanner-feeds.server';
 
 /**
  * OSIRIS — Scanner Proxy (Hardened)
@@ -49,6 +50,54 @@ export async function GET(req: Request) {
       error: 'Rate limit exceeded',
       detail: `Maximum 5 scans per minute. Please wait before scanning again.`,
     }, { status: 429 });
+  }
+
+  // 2. SSE endpoint for live CAP / AMBER broadcasts
+  const accept = req.headers.get('accept') || '';
+  if (accept.includes('text/event-stream')) {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        let open = true;
+        let intervalHandle: ReturnType<typeof setInterval> | null = null;
+        const send = (event: unknown) => {
+          if (!open) return;
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+          } catch { close(); }
+        };
+        const close = () => {
+          if (!open) return;
+          open = false;
+          if (intervalHandle) clearInterval(intervalHandle);
+          try { controller.close(); } catch {}
+        };
+        req.signal.addEventListener('abort', close);
+        try {
+          const feed = await fetchCapFeed({ source: 'nws' }, { tenantId: 'osiris', userId: 'system' } as any);
+          send({ type: 'snapshot', alerts: feed.alerts, findings: feed.findings, at: new Date().toISOString() });
+        } catch (e: any) {
+          send({ type: 'error', message: e?.message || 'CAP feed unavailable', at: new Date().toISOString() });
+        }
+        intervalHandle = setInterval(async () => {
+          if (!open) { if (intervalHandle) clearInterval(intervalHandle); return; }
+          try {
+            const feed = await fetchCapFeed({ source: 'nws' }, { tenantId: 'osiris', userId: 'system' } as any);
+            send({ type: 'update', alerts: feed.alerts, findings: feed.findings, at: new Date().toISOString() });
+          } catch (e: any) {
+            send({ type: 'error', message: e?.message || 'CAP feed error', at: new Date().toISOString() });
+          }
+        }, 30_000);
+      },
+    });
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      },
+    });
   }
 
   // 3. Validate params
