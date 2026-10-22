@@ -1,5 +1,16 @@
 # Beacons and Cards
 
-## Beacon / Card system (stub)
+## Overview
+OSIRIS uses beacon cards (UI cards) to surface alerts, scanner findings, and map entities. Each card is driven by `popup-schemas.ts` and classified by `AlertClassifier`.
 
-A **beacon** is a map marker tied to a finding; a **card** is the popup/details panel shown when a beacon is selected. Both read from `src/lib/map/beacons.ts` (kind/style) and `src/lib/map/popup-schemas.ts` (card schema). A new security integration must register both if it produces geolocated findings.
+## Alert Families
+- **Amber** (`amber-alert`): Child abduction — immediate response; fields include `family`, `severity`, `certainty`, `provenance`.
+- **Silver** (`silver-alert`): Missing elderly — high priority; same core fields.
+- **Blue** (`blue-alert`): Law enforcement — active incident.
+- **Unknown** (`cap-alert`): Unclassified CAP feed.
+
+## Card Usage
+Cards render on the map via `OsirisMap.tsx` and in the alert panel. Use `first-run` screen when no users/tenants exist.
+
+## Security
+All card payloads pass through `popup-schemas` validation. CSP notes and security headers are documented in `.env.template`.
