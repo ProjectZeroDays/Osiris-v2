@@ -18,6 +18,17 @@ having to know which file to open.
 - [Troubleshooting](TROUBLESHOOTING.md) — what to check when a thing
   does not work, including which endpoint answers which question.
 
+## New in v1.0.3
+
+- **PMTiles offline basemap** — air-gapped `.pmtiles` vector basemaps via
+  Docker volume; `pmtiles://` protocol handler registered with MapLibre
+- **Shader post-processing pipeline** — FLIR thermal, NVG phosphor, CRT
+  scanlines canvas overlay over MapLibre
+- **Entity node-link graph** — `react-force-graph-2d` link analysis for
+  tagged entities (wallet / IP / aircraft)
+- **Security tool integrations** — 13 tools in the registry, deny-by-default
+  capability allowlist, single gated dispatcher, per-tool detail pages
+
 ## Reference
 
 - [Gap analysis](GAP-ANALYSIS.md) — the six gaps that were open and how

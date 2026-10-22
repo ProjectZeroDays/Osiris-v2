@@ -337,6 +337,18 @@ refuses to talk to a worker that answers without one.
 - High Tension: Syria, Lebanon, Sahel, Somalia, Red Sea
 - Elevated: Taiwan Strait, Korean DMZ
 
+### Offline Basemap & Optical Post-Processing
+- **PMTiles offline basemap** — drop a `.pmtiles` vector archive into
+  `public/pmtiles/` (Docker volume) and switch to an air-gapped mode with
+  no external tile server
+- **WebGL shader post-processing** — FLIR thermal, NVG green phosphor, CRT
+  scanlines over the live camera / map stream via an instant canvas overlay
+
+### Interactive Entity Graph
+- **Node-link graph** for tagged entities (crypto wallets, IPs, aircraft
+  tail numbers) built with `react-force-graph-2d`
+- Desktop side panel (`GRAPH`) + mobile drawer tab (`entitygraph`)
+
 ### Performance Optimized
 - **75% reduction in edge requests** vs initial release
 - Aggressive polling relaxation (15-30 min intervals for stable data)
@@ -439,7 +451,7 @@ fails, and an entry with no route fails.
 
 ## Release Artifacts
 
-Latest release: **v1.0.19** - [osiris-release-1.0.19.zip](releases/osiris-release-1.0.19.zip) (157 MB)
+Latest tagged release: **v1.0.3** — the PMTiles offline basemap, shader post-processing pipeline, and Entity node-link graph features. Pre-existing release artifacts in the `releases/` directory may correspond to other versions.
 
 | Artifact | Size | Description |
 |----------|------|-------------|
@@ -552,6 +564,51 @@ CYBER_API_URL=http://localhost:8080/api
 OSIRIS links every one of them straight through to the operator who runs it, which is also how bekijkhet.nu asks to be read.
 
 **OI** — the method behind OI follows [MiroFish](https://github.com/666ghj/MiroFish), the open-source swarm-intelligence prediction engine: seed a parallel world from real material, populate it with agents, let them interact while variables are injected, and hand the simulation to a report agent. OSIRIS rebuilds that method natively for its own feeds and globe; no MiroFish code is used.
+
+---
+
+## 🆕 Recently Released (v1.0.3)
+
+### PMTiles Offline Basemap Caching
+Air-gapped `.pmtiles` vector basemaps via Docker volume (`public/pmtiles/`). Protocol handler (`pmtiles://`) registered with MapLibre; `OFFLINE BASEMAP` layer group in `LayerPanel`; `usePmtiles` hook + `/api/pmtiles` routes for list/upload/delete/tile serving.
+
+### WebGL Shader Post-Processing Pipeline
+Canvas overlay over MapLibre with instant visual post-processing: FLIR thermal gradients, NVG green phosphor, CRT scanlines. `ShaderPost` component with `shaderMode` (`none`/`flir`/`nvg`/`crt`) and `shaderIntensity`; `OPTICAL POST-PROCESSING` layer group.
+
+### Interactive Entity Node-Link Graph
+`EntityGraph` via `react-force-graph-2d` converts tagged entities (wallet / IP / aircraft) into interactive link analysis. Desktop `GRAPH` tool-rail trigger + mobile `entitygraph` drawer tab.
+
+---
+
+## Plan Document — Remaining Implementation Tasks
+
+Consolidated from **Osiris complete plan (v4–v15)** — `docs/plan/`. Sections completed/remaining:
+
+| Section | Title | Status | Key Deliverables |
+|---|---|---|---|
+| **01** | Core Integration Blueprint v4 | ✅ Complete | 13 security tools, manifest, icons, adapters, authz, audit, retention, dispatcher, detail pages |
+| **02** | Network & Sensor Extensions v5 | ✅ Complete | `nrsuite`, `strykerapp` added to manifest; custom icons (`NrSuiteIcon`, `StrykerAppIcon`); adapters (`nrsuite.server.ts`, `strykerapp.server.ts`) |
+| **03** | Drone RID & Surveillance Mapping v6 | 🔄 Partial | `esp32-drone-rid`, `esp32-surveillance-cams` in manifest; `DroneRidIcon`, `CopCamIcon`; adapters (`esp32-rid.server.ts`, `esp32-surveillance.server.ts`); map layer needs wire-up |
+| **04** | Flock & ALPR Mapping v7 | 🔄 Partial | `flock-detector`, `haveibeenflocked`, `plate-ocr`, `camera-feed` in manifest; icons (`FlockIcon`, `HibfIcon`, `PlateOcrIcon`, `CameraFeedIcon`); adapters (`flock.server.ts`, `hibf.server.ts`) |
+| **05** | Out-of-Scope Closure Plan v8 | 🔄 Partial | Explicit exclusions documented: live capture/BPF, HTTPL reports, drone inference, track reconstruction, reference backends |
+| **06** | Gap Analysis v4 to v8 | 🔄 Partial | 6-tier gap analysis exists (`docs/GAP-ANALYSIS.md`); Tier-1 build/security gaps mostly closed |
+| **07** | Shared Platform Foundation v9 | 🔄 Partial | DB migrations, schemas (`schemas.ts`), `health.server.ts`, `readiness.server.ts`, `retention.server.ts`, `audit.server.ts`, `state.server.ts`, `capabilities.server.ts` present; **rate limiting/quotas**, **first-run UX**, **Docker security headers**, **map layer live refresh** need verification |
+| **08** | Wifite3 & Quantum-CLI v10 | 🔄 Partial | `wifite3` (active-transmit) and `quantum-cli` (disabled-by-policy) in manifest; `WifiIcon`; adapter (`wifite3.server.ts`); dispatcher additions present |
+| **09** | Universal Tool UI & Beacons v11 | 🔄 Partial | Universal window primitives, beacon registry, popup/detail panel partially implemented via existing `OsirisMap` overlays |
+| **10** | Full UI & Integration Closure v12 | 🔄 Partial | Inventory of all requested features; gap analysis shows most security-tool pieces in place |
+| **11** | Scanner, Cell, Police & Local AI v13 | 🔄 Partial | `scanner-feeds`, `imsi-catcher`, `police-reports`, `ai-settings` in manifest; `ScannerIcon`, `CellTowerIcon`, `PoliceIcon`, `AiProvidersIcon`; adapters (`scanner-feeds.server.ts`, `imsi-catcher.server.ts`, `police-reports.server.ts`, `ai-settings.server.ts`) |
+| **12** | Verification, README & Wiki v14 | 🔄 Partial | `docs/README.md`, `docs/GAP-ANALYSIS.md`, `docs/ADDING-A-TOOL.md`, `docs/ROADMAP.md`, test matrix partial; full README update in progress |
+| **13** | Emergency Broadcasts & AMBER Alerts v15 | 🔄 Partial | CAP adapter; `scanner-feeds` layer; AMBER/Silver/Blue classifier needs wire-up |
+
+### Critical remaining items from v9 Shared Foundation
+- **DB migrations / schema enforcement**: verify `drizzle-kit migrate` against current schema
+- **Real auth + asset registry**: replace demo auth in `/api/integrations` routes
+- **Rate limiting + quota**: `quota.server.ts` exists; wire into dispatcher
+- **First-run experience**: screen when no accounts exist (see first-run flow)
+- **Docker security headers / CSP**: verify `.env` + compose
+- **Health / readiness**: already present (`/api/health`, `/api/ready`)
+- **Map layer live refresh**: logic to refresh GeoJSON/WMTS sources on viewport change
+- **Icon verification**: all custom SVGs verified; add icon test
 
 ---
 
